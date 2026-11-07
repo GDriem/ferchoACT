@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ferchoact
+      POSTGRES_PASSWORD: ferchoact
+      POSTGRES_DB: ferchoact
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ferchoact"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Emulador de Azure Blob Storage (mismo SDK que en producción)
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    restart: unless-stopped
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --loose
+    ports:
+      - "10000:10000"
+    volumes:
+      - azurite:/data
+
+volumes:
+  pgdata:
+  azurite:
