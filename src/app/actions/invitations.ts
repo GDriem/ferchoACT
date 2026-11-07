@@ -1,27 +1,20 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { refresh } from "next/cache";
 import { z } from "zod";
 import { ForbiddenError } from "@/lib/auth/access";
-import { env } from "@/lib/env";
+import { appBaseUrl } from "@/lib/app-url";
 import {
   acceptInvitation as accept,
   createInvitation as create,
+  declineInvitation as decline,
   InvitationError,
   revokeInvitation as revoke,
 } from "@/lib/invitations";
 import { invitationSchema, type FormState } from "@/lib/validation/auth";
 
 export type InvitationState = (NonNullable<FormState> & { link?: string; delivered?: boolean }) | undefined;
-
-async function baseUrl() {
-  if (env.APP_URL) return env.APP_URL;
-  const h = await headers();
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  return `${proto}://${h.get("x-forwarded-host") ?? h.get("host")}`;
-}
 
 export async function createInvitation(
   _prev: InvitationState,
@@ -32,7 +25,7 @@ export async function createInvitation(
     return { fieldErrors: z.flattenError(parsed.error).fieldErrors };
   }
   try {
-    const { url, delivered } = await create({ ...parsed.data, baseUrl: await baseUrl() });
+    const { url, delivered } = await create({ ...parsed.data, baseUrl: await appBaseUrl() });
     refresh();
     return { link: url, delivered };
   } catch (e) {
@@ -58,4 +51,15 @@ export async function acceptInvitation(_prev: FormState, formData: FormData): Pr
     throw e;
   }
   redirect(result.kind === "accountant" ? "/app" : `/app/empresas/${result.companyId}`);
+}
+
+export async function declineInvitation(_prev: FormState, formData: FormData): Promise<FormState> {
+  const token = String(formData.get("token") ?? "");
+  try {
+    await decline(token);
+  } catch (e) {
+    if (e instanceof InvitationError) return { message: e.message };
+    throw e;
+  }
+  redirect("/invitacion/rechazada");
 }

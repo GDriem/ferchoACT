@@ -1,7 +1,16 @@
 import "server-only";
 import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { accountantClients, auditLog, companies, invoices, taxPeriods, users } from "@/db/schema";
+import {
+  accountantClients,
+  auditLog,
+  companies,
+  expenseCategories,
+  invoices,
+  taxPeriods,
+  users,
+  type InvoiceKind,
+} from "@/db/schema";
 import { requireCompanyAccess, requireUser } from "@/lib/auth/access";
 import { TIME_ZONE } from "@/lib/format";
 import { invoiceFieldsSchema, INVOICE_FIELDS } from "@/lib/validation/invoice";
@@ -49,7 +58,7 @@ export async function listClients() {
  * que aún no tienen período (procesando o sin fecha) subidas ese mes, para
  * que no queden escondidas.
  */
-export async function getPeriodInvoices(companyId: string, year: number, month: number) {
+export async function getPeriodInvoices(companyId: string, year: number, month: number, kind: InvoiceKind = "purchase") {
   await requireCompanyAccess(companyId, "invoice:review");
 
   const [period] = await db
@@ -65,6 +74,9 @@ export async function getPeriodInvoices(companyId: string, year: number, month: 
       fechaEmision: invoices.fechaEmision,
       razonSocialEmisor: invoices.razonSocialEmisor,
       rtnEmisor: invoices.rtnEmisor,
+      nombreComprador: invoices.nombreComprador,
+      rtnComprador: invoices.rtnComprador,
+      categoryName: expenseCategories.name,
       numeroFactura: invoices.numeroFactura,
       importeExento: invoices.importeExento,
       importeExonerado: invoices.importeExonerado,
@@ -81,9 +93,11 @@ export async function getPeriodInvoices(companyId: string, year: number, month: 
     })
     .from(invoices)
     .innerJoin(users, eq(invoices.uploadedBy, users.id))
+    .leftJoin(expenseCategories, eq(invoices.categoryId, expenseCategories.id))
     .where(
       and(
         eq(invoices.companyId, companyId),
+        eq(invoices.kind, kind),
         period
           ? or(eq(invoices.periodId, period.id), and(isNull(invoices.periodId), uploadedThisMonth))
           : and(isNull(invoices.periodId), uploadedThisMonth),
@@ -97,7 +111,20 @@ export async function getPeriodInvoices(companyId: string, year: number, month: 
     .from(taxPeriods)
     .where(eq(taxPeriods.companyId, companyId));
 
-  return { period: period ?? null, rows, periods };
+  // Para la pestaña que no se está viendo: cuántas hay pendientes
+  const [other] = await db
+    .select({ pending: sql<number>`count(*)::int` })
+    .from(invoices)
+    .where(
+      and(
+        eq(invoices.companyId, companyId),
+        eq(invoices.kind, kind === "sale" ? "purchase" : "sale"),
+        inArray(invoices.status, ["processing", "needs_review"]),
+        period ? or(eq(invoices.periodId, period.id), and(isNull(invoices.periodId), uploadedThisMonth)) : and(isNull(invoices.periodId), uploadedThisMonth),
+      ),
+    );
+
+  return { period: period ?? null, rows, periods, otherPending: other?.pending ?? 0 };
 }
 
 type BatchResult = { updated: number; skipped: { id: string; reason: string }[] };

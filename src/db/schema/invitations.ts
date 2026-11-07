@@ -20,6 +20,8 @@ export const companyInvitations = pgTable(
     acceptedAt: timestamp({ withTimezone: true }),
     acceptedBy: uuid().references(() => users.id, { onDelete: "set null" }),
     revokedAt: timestamp({ withTimezone: true }),
+    // Quien la recibió la rechazó
+    declinedAt: timestamp({ withTimezone: true }),
     createdBy: uuid()
       .notNull()
       .references(() => users.id),

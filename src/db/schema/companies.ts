@@ -14,6 +14,8 @@ export const companies = pgTable("companies", {
   rtn: text().notNull().unique(), // 14 dígitos sin guiones
   legalName: text().notNull(),
   tradeName: text(),
+  // Logo en Blob (privado, se lee con SAS)
+  logoBlob: text(),
   createdBy: uuid()
     .notNull()
     .references(() => users.id),

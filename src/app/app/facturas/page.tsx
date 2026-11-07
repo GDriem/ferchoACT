@@ -38,7 +38,9 @@ async function InvoiceList() {
     return (
       <div className="grid place-items-center gap-2 rounded-xl border border-dashed p-10 text-center">
         <ReceiptTextIcon className="size-8 text-muted-foreground" aria-hidden />
-        <p className="text-sm text-muted-foreground">Aún no ha subido facturas. Toque «Escanear factura» para empezar.</p>
+        <p className="text-sm text-muted-foreground">
+          Aún no ha subido facturas. Toque «Escanear factura» para subir una compra, un gasto o una venta.
+        </p>
       </div>
     );
   }
@@ -61,8 +63,15 @@ async function InvoiceList() {
               <li key={r.id}>
                 <Link href={`/app/facturas/${r.id}`} className="flex min-h-16 items-center gap-3 px-3 py-2.5 hover:bg-muted/50">
                   <div className="grid min-w-0 flex-1 gap-0.5">
-                    <p className="truncate text-sm font-medium">
-                      {r.razonSocialEmisor ?? (r.status === "processing" ? "Leyendo factura…" : "Sin proveedor")}
+                    <p className="flex items-center gap-2 text-sm font-medium">
+                      {r.kind === "sale" && (
+                        <span className="shrink-0 rounded-md bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">Venta</span>
+                      )}
+                      <span className="truncate">
+                        {r.kind === "sale"
+                          ? (r.nombreComprador ?? "Consumidor final")
+                          : (r.razonSocialEmisor ?? (r.status === "processing" ? "Leyendo factura…" : "Sin proveedor"))}
+                      </span>
                     </p>
                     <p className="truncate text-xs text-muted-foreground tabular-nums">
                       {[r.numeroFactura, formatDate(r.fechaEmision ?? r.createdAt), multiCompany && r.companyName]

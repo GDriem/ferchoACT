@@ -7,6 +7,7 @@ import { createCompany, createUser, loginAs } from "../../test/helpers";
 import {
   acceptInvitation,
   createInvitation,
+  declineInvitation,
   getCompanyDetail,
   hashInvitationToken,
   revokeInvitation,
@@ -80,6 +81,35 @@ describe("invitaciones y autorización por empresa", () => {
     loginAs(await createUser());
     await expect(acceptInvitation(tokenOf(expired.url))).rejects.toMatchObject({ code: "invalid" });
     await expect(acceptInvitation(tokenOf(revoked.url))).rejects.toMatchObject({ code: "invalid" });
+  });
+
+  it("una invitación rechazada ya no se puede aceptar y sale de pendientes", async () => {
+    const { company, owner } = await createCompany();
+    loginAs(owner);
+    const { url } = await createInvitation({ companyId: company.id, kind: "member", baseUrl });
+
+    loginAs(null); // se puede rechazar sin tener cuenta
+    await declineInvitation(tokenOf(url));
+    loginAs(await createUser());
+    await expect(acceptInvitation(tokenOf(url))).rejects.toMatchObject({ code: "invalid" });
+    await expect(declineInvitation(tokenOf(url))).rejects.toMatchObject({ code: "invalid" });
+
+    loginAs(owner);
+    expect((await getCompanyDetail(company.id)).pending).toHaveLength(0);
+  });
+
+  it("una invitación con correo solo la rechaza esa cuenta", async () => {
+    const { company, owner } = await createCompany();
+    const invited = await createUser();
+    loginAs(owner);
+    const { url } = await createInvitation({ companyId: company.id, kind: "accountant", email: invited.email, baseUrl });
+
+    loginAs(null);
+    await expect(declineInvitation(tokenOf(url))).rejects.toMatchObject({ code: "email_mismatch" });
+    loginAs(await createUser());
+    await expect(declineInvitation(tokenOf(url))).rejects.toMatchObject({ code: "email_mismatch" });
+    loginAs(invited);
+    await expect(declineInvitation(tokenOf(url))).resolves.toBeUndefined();
   });
 
   it("un member no puede anular invitaciones", async () => {

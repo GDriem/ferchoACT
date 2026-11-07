@@ -1,27 +1,28 @@
 import "server-only";
 import { EmailClient } from "@azure/communication-email";
-import type { InvitationEmail, InvitationMailer } from "./index";
-import { renderInvitationEmail } from "./template";
+import type { MailMessage, Mailer } from "./index";
 
 /**
- * Azure Communication Services Email. Si el envío falla la invitación igual
- * queda creada: se devuelve `delivered: false` y la UI muestra el enlace.
+ * Azure Communication Services Email. Si el envío falla se devuelve
+ * `delivered: false`: lo que originó el correo (invitación, comentario) ya
+ * quedó guardado.
  */
-export function createAcsMailer(connectionString: string, senderAddress: string): InvitationMailer {
+export function createAcsMailer(connectionString: string, senderAddress: string): Mailer {
   const client = new EmailClient(connectionString);
   return {
-    async send(email: InvitationEmail) {
-      const { subject, html, plainText } = renderInvitationEmail(email);
+    async send({ to, subject, html, plainText }: MailMessage) {
       try {
         // beginSend resuelve cuando ACS aceptó el mensaje; no esperamos la entrega final.
+        // Con varios destinatarios van en bcc para no exponer los correos entre sí.
+        const addresses = to.map((address) => ({ address }));
         await client.beginSend({
           senderAddress,
-          recipients: { to: [{ address: email.to }] },
+          recipients: addresses.length === 1 ? { to: addresses } : { bcc: addresses },
           content: { subject, html, plainText },
         });
         return { delivered: true };
       } catch (e) {
-        console.error("No se pudo enviar la invitación por correo", e);
+        console.error("No se pudo enviar el correo", subject, e);
         return { delivered: false };
       }
     },

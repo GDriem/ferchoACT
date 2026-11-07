@@ -1,18 +1,25 @@
-import { Building2Icon, CalculatorIcon, MailIcon, UserIcon } from "lucide-react";
+import { CalculatorIcon, MailIcon, UserIcon } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { z } from "zod";
+import { removeCompanyLogo, uploadCompanyLogo } from "@/app/actions/profile";
+import { ImagePicker } from "@/components/image-picker";
+import { UserAvatar } from "@/components/user-avatar";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ForbiddenError } from "@/lib/auth/access";
+import { listCategoriesUnchecked } from "@/lib/categories";
 import { formatDate } from "@/lib/format";
 import { getCompanyDetail } from "@/lib/invitations";
 import { formatRtn } from "@/lib/validation/rtn";
+import { CategoriesCard } from "./categories-card";
 import { InviteForm } from "./invite-form";
+import { LinkAccountantForm } from "./link-accountant-form";
+import { RemovePersonButton } from "./remove-person-button";
 import { RevokeButton } from "./revoke-button";
 
 export const metadata: Metadata = { title: "Empresa" };
@@ -51,20 +58,22 @@ async function loadDetail(id: string) {
 const kindLabel = { member: "Miembro", accountant: "Contador" } as const;
 
 async function CompanyDetail({ id }: { id: string }) {
-  const { company, members, accountants, pending, canManage, via } = await loadDetail(id);
+  const { company, logoUrl, members, accountants, pending, canManage, via, userId } = await loadDetail(id);
+  // La empresa ya se autorizó en loadDetail
+  const categories = await listCategoriesUnchecked(company.id);
 
   return (
     <div className="grid gap-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid gap-1">
-          <h1 className="flex items-center gap-2 text-xl font-semibold">
-            <Building2Icon className="size-5 text-muted-foreground" />
-            {company.legalName}
-          </h1>
-          <p className="text-sm text-muted-foreground tabular-nums">
-            RTN {formatRtn(company.rtn)}
-            {company.tradeName && ` · ${company.tradeName}`}
-          </p>
+        <div className="flex items-center gap-3">
+          <UserAvatar name={company.legalName} url={logoUrl} square className="size-12 text-base" />
+          <div className="grid gap-1">
+            <h1 className="text-xl font-semibold">{company.legalName}</h1>
+            <p className="text-sm text-muted-foreground tabular-nums">
+              RTN {formatRtn(company.rtn)}
+              {company.tradeName && ` · ${company.tradeName}`}
+            </p>
+          </div>
         </div>
         {via === "accountant" ? (
           <Link href={`/contador/${company.id}`} className={buttonVariants({ size: "lg", className: "h-11" })}>
@@ -76,6 +85,27 @@ async function CompanyDetail({ id }: { id: string }) {
           </Link>
         )}
       </div>
+
+      {canManage && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Logo</CardTitle>
+            <CardDescription>Aparece en la ficha de la empresa y en «Mis empresas».</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ImagePicker
+              name={company.legalName}
+              url={logoUrl}
+              square
+              label="Logo"
+              savedMessage="Logo actualizado"
+              upload={uploadCompanyLogo}
+              remove={removeCompanyLogo.bind(null, company.id)}
+              extra={{ companyId: company.id }}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -94,6 +124,9 @@ async function CompanyDetail({ id }: { id: string }) {
                 <Badge variant={m.role === "owner" ? "default" : "secondary"}>
                   {m.role === "owner" ? "Dueño" : "Miembro"}
                 </Badge>
+                {canManage && m.role === "member" && m.id !== userId && (
+                  <RemovePersonButton companyId={company.id} userId={m.id} name={m.name} kind="member" />
+                )}
               </li>
             ))}
           </ul>
@@ -109,7 +142,7 @@ async function CompanyDetail({ id }: { id: string }) {
           {accountants.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               {canManage
-                ? "Aún no hay contador vinculado. Invítelo con el formulario de abajo."
+                ? "Aún no hay contador vinculado. Vincúlelo con su código o invítelo con un enlace (abajo)."
                 : "Aún no hay contador vinculado."}
             </p>
           ) : (
@@ -121,6 +154,7 @@ async function CompanyDetail({ id }: { id: string }) {
                     <p className="truncate text-sm font-medium">{a.name}</p>
                     <p className="truncate text-xs text-muted-foreground">{a.email}</p>
                   </div>
+                  {canManage && <RemovePersonButton companyId={company.id} userId={a.id} name={a.name} kind="accountant" />}
                 </li>
               ))}
             </ul>
@@ -128,8 +162,11 @@ async function CompanyDetail({ id }: { id: string }) {
         </CardContent>
       </Card>
 
+      <CategoriesCard companyId={company.id} categories={categories} canManage={canManage || via === "accountant"} />
+
       {canManage && (
         <>
+          <LinkAccountantForm companyId={company.id} />
           <InviteForm companyId={company.id} />
 
           <Card>

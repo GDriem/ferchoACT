@@ -5,8 +5,10 @@ import { auditLog, invoices, taxPeriods } from "@/db/schema";
 import { ForbiddenError } from "@/lib/auth/access";
 import { invoiceFieldsSchema, type InvoiceFieldsInput } from "@/lib/validation/invoice";
 import { createCompany, createUser, loginAs } from "../../test/helpers";
+import { addCategory, listCategories } from "@/lib/categories";
 import {
   confirmUpload,
+  createManualInvoice,
   discardInvoice,
   getInvoiceForReview,
   listMyInvoices,
@@ -207,5 +209,91 @@ describe("confirmación", () => {
     loginAs(member);
     const mine = await upload(company.id);
     expect((await listMyInvoices()).map((i) => i.id)).toEqual([mine]);
+  });
+});
+
+describe("eliminar", () => {
+  it("quien la subió elimina una factura sin revisar (p. ej. un PDF equivocado), con su archivo", async () => {
+    const { company, member } = await createCompany();
+    loginAs(member);
+    const id = await upload(company.id);
+    const { canDelete } = await getInvoiceForReview(id);
+    expect(canDelete).toBe(true);
+    const [file] = [...blobs.keys()].filter((k) => k.startsWith(`${company.id}/${member.id}/`));
+    await discardInvoice(id);
+    expect(await db.select().from(invoices).where(eq(invoices.id, id))).toEqual([]);
+    expect(blobs.has(file)).toBe(false);
+    const [log] = await db.select().from(auditLog).where(eq(auditLog.entityId, id));
+    expect(log).toBeDefined();
+  });
+
+  it("el owner ve la factura de un member pero no la puede eliminar", async () => {
+    const { company, owner, member } = await createCompany();
+    loginAs(member);
+    const id = await upload(company.id);
+    loginAs(owner);
+    expect((await getInvoiceForReview(id)).canDelete).toBe(false);
+    await expect(discardInvoice(id)).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+describe("ventas", () => {
+  it("en una venta la empresa siempre es la emisora, diga lo que diga el formulario", async () => {
+    const { company, member } = await createCompany();
+    loginAs(member);
+    const id = await createManualInvoice({ companyId: company.id, kind: "sale" });
+    await saveInvoiceFields(id, parsed({ nombreComprador: "Cliente Final", rtnComprador: "" }));
+    const [row] = await db.select().from(invoices).where(eq(invoices.id, id));
+    expect(row).toMatchObject({
+      kind: "sale",
+      rtnEmisor: company.rtn,
+      razonSocialEmisor: company.legalName,
+      nombreComprador: "Cliente Final",
+      categoryId: null,
+    });
+  });
+
+  it("una venta nueva toma el CAI y la fecha límite de la última venta", async () => {
+    const { company, member } = await createCompany();
+    loginAs(member);
+    const first = await createManualInvoice({ companyId: company.id, kind: "sale" });
+    await saveInvoiceFields(first, parsed());
+    const second = await createManualInvoice({ companyId: company.id, kind: "sale" });
+    const [row] = await db.select().from(invoices).where(eq(invoices.id, second));
+    expect(row).toMatchObject({ cai: fields.cai, fechaLimiteEmision: fields.fechaLimiteEmision, rtnEmisor: company.rtn });
+  });
+
+  it("el OCR de una venta no cambia el emisor", async () => {
+    const { company, member } = await createCompany();
+    loginAs(member);
+    const { blobName } = await requestUpload({ companyId: company.id, contentType: "image/jpeg", sizeBytes: 1000 });
+    blobs.set(blobName, { sizeBytes: 1000, contentType: "image/jpeg" });
+    const id = await confirmUpload({ companyId: company.id, blobName, kind: "sale" });
+    await processInvoiceOcr(id);
+    const [row] = await db.select().from(invoices).where(eq(invoices.id, id));
+    expect(row.rtnEmisor).toBe(company.rtn);
+    expect(row.numeroFactura).toBe("000-001-01-00000999");
+  });
+});
+
+describe("categoría", () => {
+  it("guarda una categoría de la lista base o propia, pero no la de otra empresa", async () => {
+    const { company, owner, member } = await createCompany();
+    const other = await createCompany();
+    loginAs(other.owner);
+    const foreign = await addCategory(other.company.id, "Ajena");
+
+    loginAs(owner);
+    const own = await addCategory(company.id, "Propia");
+    loginAs(member);
+    const base = (await listCategories(company.id)).find((c) => c.name === "Combustible")!;
+    const id = await upload(company.id);
+    await saveInvoiceFields(id, parsed({ categoryId: base.id }));
+    await saveInvoiceFields(id, parsed({ categoryId: own }));
+    const [row] = await db.select().from(invoices).where(eq(invoices.id, id));
+    expect(row.categoryId).toBe(own);
+    await expect(saveInvoiceFields(id, parsed({ categoryId: foreign }))).rejects.toMatchObject({
+      code: "invalid_category",
+    });
   });
 });

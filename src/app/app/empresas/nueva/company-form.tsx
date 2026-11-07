@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { createCompany } from "@/app/actions/companies";
 import { FormField } from "@/components/form-field";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function CompanyForm() {
@@ -42,9 +43,14 @@ export function CompanyForm() {
               {state.message}
             </p>
           )}
-          <Button type="submit" size="lg" className="h-11" disabled={pending}>
-            {pending ? "Registrando…" : "Registrar empresa"}
-          </Button>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Link href="/app" className={buttonVariants({ variant: "outline", size: "lg", className: "h-11 sm:order-first" })}>
+              Cancelar
+            </Link>
+            <Button type="submit" size="lg" className="h-11" disabled={pending}>
+              {pending ? "Registrando…" : "Registrar empresa"}
+            </Button>
+          </div>
         </form>
       </CardContent>
     </Card>

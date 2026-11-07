@@ -1,15 +1,27 @@
 "use client";
 
-import { ExternalLinkIcon, FileTextIcon } from "lucide-react";
+import { CheckIcon, ExternalLinkIcon, FileTextIcon, XIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { getInvoiceDetail, validateBatch } from "@/app/actions/review";
+import { getInvoiceDetail, rejectBatch, validateBatch } from "@/app/actions/review";
+import { InvoiceComments } from "@/components/invoice-comments";
 import { InvoiceForm } from "@/components/invoice-form";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { formatDate } from "@/lib/format";
 
 type Detail = Extract<Awaited<ReturnType<typeof getInvoiceDetail>>, { ok: true }>["data"];
@@ -29,6 +41,8 @@ export function InvoiceSheet({
   const [error, setError] = useState<string | null>(null);
   const [loading, startLoading] = useTransition();
   const [validating, startValidating] = useTransition();
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [reason, setReason] = useState("");
 
   const load = useCallback(
     (id: string) =>
@@ -62,7 +76,9 @@ export function InvoiceSheet({
             {detail && <InvoiceStatusBadge status={detail.status} />}
           </SheetTitle>
           <SheetDescription>
-            {detail?.initial.razonSocialEmisor || "Compare la imagen con los datos y corrija lo necesario."}
+            {detail?.kind === "sale"
+              ? `Venta${detail.initial.nombreComprador ? ` a ${detail.initial.nombreComprador}` : ""}`
+              : detail?.initial.razonSocialEmisor || "Compare la imagen con los datos y corrija lo necesario."}
           </SheetDescription>
         </SheetHeader>
 
@@ -119,6 +135,8 @@ export function InvoiceSheet({
                 <InvoiceForm
                   key={detail.id + detail.status}
                   invoiceId={detail.id}
+                  kind={detail.kind}
+                  categories={detail.kind === "purchase" ? detail.categories : undefined}
                   initial={detail.initial}
                   confidences={detail.confirmedAt ? null : detail.confidences}
                   companyRtn={detail.companyRtn}
@@ -126,34 +144,94 @@ export function InvoiceSheet({
                   submitLabel="Guardar correcciones"
                   onSaved={onSaved}
                   footer={
-                    detail.canEdit && detail.status !== "validated" ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="lg"
-                        className="h-11"
-                        disabled={validating}
-                        onClick={() =>
-                          startValidating(async () => {
-                            const r = await validateBatch({ companyId, ids: [detail.id] });
-                            if (!r.ok) return void toast.error(r.error.message);
-                            if (r.data.skipped.length) return void toast.warning(r.data.skipped[0].reason);
-                            toast.success("Factura validada");
-                            router.refresh();
-                            onOpenChange(false);
-                          })
-                        }
-                      >
-                        {validating ? "Validando…" : "Marcar como validada"}
-                      </Button>
+                    detail.canEdit ? (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {detail.status !== "validated" && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="lg"
+                            className="h-11"
+                            disabled={validating}
+                            onClick={() =>
+                              startValidating(async () => {
+                                const r = await validateBatch({ companyId, ids: [detail.id] });
+                                if (!r.ok) return void toast.error(r.error.message);
+                                if (r.data.skipped.length) return void toast.warning(r.data.skipped[0].reason);
+                                toast.success("Factura validada");
+                                router.refresh();
+                                onOpenChange(false);
+                              })
+                            }
+                          >
+                            <CheckIcon /> {validating ? "Validando…" : "Marcar como validada"}
+                          </Button>
+                        )}
+                        {detail.status !== "rejected" && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="lg"
+                            className="h-11 text-destructive"
+                            disabled={validating}
+                            onClick={() => setRejectOpen(true)}
+                          >
+                            <XIcon /> Rechazar
+                          </Button>
+                        )}
+                      </div>
                     ) : undefined
                   }
                 />
+                <InvoiceComments key={detail.id} invoiceId={detail.id} />
               </div>
             </div>
           )}
         </div>
       </SheetContent>
+
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rechazar la factura {detail?.initial.numeroFactura ?? ""}</DialogTitle>
+            <DialogDescription>Quien la subió verá el motivo y podrá corregirla.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-1.5">
+            <Label htmlFor="motivo-sheet">Motivo</Label>
+            <Textarea
+              id="motivo-sheet"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="P. ej.: la foto está borrosa, falta el CAI…"
+              maxLength={500}
+            />
+          </div>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" size="lg" className="h-11" />}>Cancelar</DialogClose>
+            <Button
+              variant="destructive"
+              size="lg"
+              className="h-11"
+              disabled={validating || reason.trim().length < 3 || !detail}
+              onClick={() =>
+                detail &&
+                startValidating(async () => {
+                  const r = await rejectBatch({ companyId, ids: [detail.id], reason });
+                  if (!r.ok) return void toast.error(r.error.message);
+                  if (r.data.skipped.length) return void toast.warning(r.data.skipped[0].reason);
+                  toast.success("Factura rechazada");
+                  setRejectOpen(false);
+                  setReason("");
+                  router.refresh();
+                  load(detail.id);
+                })
+              }
+            >
+              {validating ? "Rechazando…" : "Rechazar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sheet>
   );
 }

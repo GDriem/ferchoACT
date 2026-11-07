@@ -1,9 +1,11 @@
-import { AlertTriangleIcon, ExternalLinkIcon, FileTextIcon } from "lucide-react";
+import { AlertTriangleIcon, ArrowLeftIcon, ExternalLinkIcon, FileTextIcon } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { z } from "zod";
+import { listComments } from "@/app/actions/comments";
+import { InvoiceComments } from "@/components/invoice-comments";
 import { InvoiceForm } from "@/components/invoice-form";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -51,18 +53,29 @@ async function load(id: string) {
 }
 
 async function Review({ id }: { id: string }) {
-  const { invoice, company, file, duplicate, canEdit, as } = await load(id);
+  const { invoice, company, file, duplicate, canEdit, canDelete, categories, as } = await load(id);
+  const comments = await listComments(id);
   const processing = invoice.status === "processing";
   const confirmed = !!invoice.confirmedAt;
+  const sale = invoice.kind === "sale";
+  const back = as === "accountant" ? { href: "/contador", label: "Revisión de facturas" } : { href: "/app/facturas", label: "Mis facturas" };
 
   return (
     <div className="grid gap-4">
+      <Link href={back.href} className="inline-flex min-h-11 w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeftIcon className="size-4" aria-hidden /> Volver a {back.label}
+      </Link>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="grid gap-0.5">
-          <h1 className="text-xl font-semibold">{confirmed ? "Factura" : "Confirme los datos"}</h1>
+          <h1 className="text-xl font-semibold">
+            {confirmed ? (sale ? "Factura de venta" : "Factura de compra") : sale ? "Confirme la venta" : "Confirme los datos"}
+          </h1>
           <p className="text-sm text-muted-foreground">{company.legalName}</p>
         </div>
-        <InvoiceStatusBadge status={invoice.status} />
+        <div className="flex flex-wrap items-center gap-2">
+          <InvoiceStatusBadge status={invoice.status} />
+          {canDelete && <DiscardButton invoiceId={invoice.id} label={invoice.numeroFactura} />}
+        </div>
       </div>
 
       {invoice.status === "rejected" && invoice.rejectionReason && (
@@ -72,12 +85,8 @@ async function Review({ id }: { id: string }) {
       )}
       {duplicate && (
         <Notice tone="warning" title="Parece que esta factura ya fue registrada">
-          La subió {duplicate.uploadedBy} el {formatDate(duplicate.createdAt)}. Si es la misma, descarte esta subida.
-          {as === "uploader" && canEdit && (
-            <div className="mt-2">
-              <DiscardButton invoiceId={invoice.id} />
-            </div>
-          )}
+          La subió {duplicate.uploadedBy} el {formatDate(duplicate.createdAt)}. Si es la misma, elimine esta subida con el
+          botón «Eliminar factura».
         </Notice>
       )}
       {invoice.ocrError && !confirmed && <Notice tone="warning" title="Lectura automática no disponible">{invoice.ocrError}</Notice>}
@@ -123,12 +132,14 @@ async function Review({ id }: { id: string }) {
             // Al terminar el OCR cambia la key y el formulario se vuelve a prellenar
             key={processing ? "processing" : "ready"}
             invoiceId={invoice.id}
+            kind={invoice.kind}
+            categories={sale ? undefined : categories}
             initial={initialInvoiceValues(invoice)}
             confidences={confirmed ? null : invoice.ocrConfidence}
             companyRtn={company.rtn}
             readOnly={!canEdit}
             submitLabel={confirmed ? "Guardar cambios" : "Confirmar factura"}
-            savedSlot={as === "uploader" ? <SavedCard /> : undefined}
+            savedSlot={as === "uploader" ? <SavedCard sale={sale} /> : undefined}
           />
           {!canEdit && (
             <p className="text-sm text-muted-foreground">
@@ -137,6 +148,7 @@ async function Review({ id }: { id: string }) {
                 : "Solo quien subió la factura o el contador pueden modificarla."}
             </p>
           )}
+          <InvoiceComments invoiceId={invoice.id} initial={comments.ok ? comments.data : undefined} />
         </div>
       </div>
     </div>

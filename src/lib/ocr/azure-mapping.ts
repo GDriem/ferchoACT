@@ -25,6 +25,7 @@ export function mapAnalyzeResult(result: AnalyzeResultOutput): OcrResult {
   set("razonSocialEmisor", text(f.VendorName)?.trim(), f.VendorName?.confidence);
   const vendorRtn = digits(f.VendorTaxId);
   if (vendorRtn?.length === 14) set("rtnEmisor", vendorRtn, f.VendorTaxId?.confidence);
+  set("nombreComprador", text(f.CustomerName)?.trim(), f.CustomerName?.confidence);
   const buyerRtn = digits(f.CustomerTaxId);
   if (buyerRtn?.length === 14) set("rtnComprador", buyerRtn, f.CustomerTaxId?.confidence);
   const invoiceId = text(f.InvoiceId) && normalizeNumeroFactura(text(f.InvoiceId)!);

@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getCurrentUser } from "@/lib/auth/session";
 import { findValidInvitation } from "@/lib/invitations";
 import { AcceptForm } from "./accept-form";
+import { DeclineForm } from "./decline-form";
 
 export const metadata: Metadata = { title: "Invitación" };
 
@@ -75,6 +76,7 @@ async function Invitation({ token }: { token: string }) {
             </Link>
           </>
         )}
+        <DeclineForm token={token} companyName={invitation.companyName} />
       </CardContent>
     </Card>
   );
