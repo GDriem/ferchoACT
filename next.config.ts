@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Imagen Docker mínima: .next/standalone trae solo las dependencias usadas
+  output: "standalone",
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {

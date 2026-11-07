@@ -24,6 +24,8 @@ npm run db:up                # Postgres + Azurite en Docker
 npm run db:migrate           # aplicar migraciones (drizzle/)
 npm run storage:setup        # contenedor de Blob + CORS para subir desde el navegador
 npm run dev                  # http://localhost:3000
+npm run docker:up            # app completa en Docker (build + migraciones + Blob) en :3000
+npm run docker:down
 
 npm run lint
 npm run typecheck            # next typegen + tsc (los tipos LayoutProps/PageProps los genera Next)

@@ -23,14 +23,29 @@ function container() {
 
 const minutesFromNow = (m: number) => new Date(Date.now() + m * 60 * 1000);
 
+/**
+ * Las SAS las abre el navegador. En Docker el servidor llega a Azurite como
+ * `azurite:10000`, pero el navegador necesita `localhost:10000`.
+ */
+function forBrowser(sasUrl: string) {
+  if (!env.AZURE_STORAGE_PUBLIC_ENDPOINT) return sasUrl;
+  const url = new URL(sasUrl);
+  const publicUrl = new URL(env.AZURE_STORAGE_PUBLIC_ENDPOINT);
+  url.protocol = publicUrl.protocol;
+  url.host = publicUrl.host;
+  return url.toString();
+}
+
 /** SAS de escritura para un solo blob, válida 10 minutos. */
 export async function createUploadUrl(blobName: string) {
-  return container()
-    .getBlockBlobClient(blobName)
-    .generateSasUrl({
-      permissions: BlobSASPermissions.parse("cw"),
-      expiresOn: minutesFromNow(UPLOAD_SAS_MINUTES),
-    });
+  return forBrowser(
+    await container()
+      .getBlockBlobClient(blobName)
+      .generateSasUrl({
+        permissions: BlobSASPermissions.parse("cw"),
+        expiresOn: minutesFromNow(UPLOAD_SAS_MINUTES),
+      }),
+  );
 }
 
 /**
@@ -38,9 +53,11 @@ export async function createUploadUrl(blobName: string) {
  * las facturas son datos fiscales y el contenedor es privado.
  */
 export async function createReadUrl(blobName: string) {
-  return container()
-    .getBlobClient(blobName)
-    .generateSasUrl({ permissions: BlobSASPermissions.parse("r"), expiresOn: minutesFromNow(READ_SAS_MINUTES) });
+  return forBrowser(
+    await container()
+      .getBlobClient(blobName)
+      .generateSasUrl({ permissions: BlobSASPermissions.parse("r"), expiresOn: minutesFromNow(READ_SAS_MINUTES) }),
+  );
 }
 
 /** Tamaño y tipo del blob subido, o null si no existe. */

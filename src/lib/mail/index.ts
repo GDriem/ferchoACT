@@ -1,5 +1,7 @@
 import "server-only";
 import type { InvitationKind } from "@/db/schema";
+import { env } from "@/lib/env";
+import { createAcsMailer } from "./acs";
 
 export type InvitationEmail = {
   to: string;
@@ -10,8 +12,8 @@ export type InvitationEmail = {
 };
 
 /**
- * Envío de invitaciones por correo. Cuando haya proveedor (p. ej. Azure
- * Communication Services) basta con otra implementación de esta interfaz.
+ * Envío de invitaciones por correo. Azure Communication Services si está
+ * configurado; si no, solo enlace.
  */
 export interface InvitationMailer {
   /** `delivered: false` significa que el owner debe compartir el enlace a mano. */
@@ -25,4 +27,7 @@ const linkOnlyMailer: InvitationMailer = {
   },
 };
 
-export const invitationMailer: InvitationMailer = linkOnlyMailer;
+export const invitationMailer: InvitationMailer =
+  env.ACS_CONNECTION_STRING && env.ACS_EMAIL_SENDER
+    ? createAcsMailer(env.ACS_CONNECTION_STRING, env.ACS_EMAIL_SENDER)
+    : linkOnlyMailer;

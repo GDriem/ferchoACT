@@ -26,6 +26,36 @@ services:
     volumes:
       - azurite:/data
 
+  # App completa en Docker: `npm run docker:up` (los servicios de arriba solos
+  # siguen siendo `npm run db:up` para desarrollar con `npm run dev`).
+  migrate:
+    profiles: [app]
+    build: { context: ., target: tools }
+    command: sh -c "npx drizzle-kit migrate && npx tsx scripts/setup-storage.mts"
+    environment: &app-env
+      DATABASE_URL: postgres://ferchoact:ferchoact@db:5432/ferchoact
+      AZURE_STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
+      AZURE_STORAGE_CONTAINER: facturas
+      AZURE_STORAGE_PUBLIC_ENDPOINT: http://localhost:10000
+      APP_URL: http://localhost:3000
+    depends_on:
+      db: { condition: service_healthy }
+      azurite: { condition: service_started }
+
+  app:
+    profiles: [app]
+    build: { context: ., target: runner }
+    restart: unless-stopped
+    # Secretos (Document Intelligence, Communication Services) desde .env, que no se versiona
+    env_file:
+      - path: .env
+        required: false
+    environment: *app-env
+    ports:
+      - "3000:3000"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
 volumes:
   pgdata:
   azurite:

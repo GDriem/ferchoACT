@@ -99,6 +99,7 @@ export function InviteForm({ companyId }: { companyId: string }) {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
+              {state.delivered && "También se envió por correo. "}
               Este enlace solo se muestra ahora. Vence en 7 días.
             </p>
           </div>
