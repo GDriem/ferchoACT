@@ -9,7 +9,7 @@ export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const hasSession = req.cookies.has(SESSION_COOKIE);
 
-  if (pathname.startsWith("/app") && !hasSession) {
+  if ((pathname.startsWith("/app") || pathname.startsWith("/contador")) && !hasSession) {
     return NextResponse.redirect(new URL("/ingresar", req.nextUrl));
   }
   if (authPages.includes(pathname) && hasSession) {
@@ -22,5 +22,5 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/app/:path*", "/ingresar", "/registro"],
+  matcher: ["/app/:path*", "/contador/:path*", "/ingresar", "/registro"],
 };

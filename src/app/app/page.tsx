@@ -64,7 +64,7 @@ async function HomeContent() {
               Aún no tiene clientes. Cuando una empresa lo invite como contador, aparecerá aquí.
             </p>
           ) : (
-            <CompanyGrid items={clients.map((c) => ({ ...c, badge: undefined }))} />
+            <CompanyGrid items={clients.map((c) => ({ ...c, href: `/contador/${c.id}` }))} />
           )}
         </section>
       )}
@@ -100,14 +100,14 @@ async function HomeContent() {
 function CompanyGrid({
   items,
 }: {
-  items: { id: string; legalName: string; rtn: string; badge?: string }[];
+  items: { id: string; legalName: string; rtn: string; badge?: string; href?: string }[];
 }) {
   return (
     <ul className="grid gap-3 sm:grid-cols-2">
       {items.map((c) => (
         <li key={c.id}>
           <Link
-            href={`/app/empresas/${c.id}`}
+            href={c.href ?? `/app/empresas/${c.id}`}
             className="block rounded-xl focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
           >
             <Card className="transition-colors hover:bg-muted/50">
