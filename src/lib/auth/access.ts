@@ -6,6 +6,7 @@ import { accountantClients, companyMembers, type MemberRole } from "@/db/schema"
 import { getCurrentUser, type SessionUser } from "./session";
 
 export type CompanyPermission =
+  | "company:read" // ver la ficha de la empresa y su equipo
   | "invoice:upload" // subir facturas propias
   | "invoice:read_all" // ver todas las facturas de la empresa
   | "invoice:review" // editar/validar cualquier factura
@@ -13,11 +14,12 @@ export type CompanyPermission =
   | "period:close"; // cerrar período y generar reporte SAR
 
 const memberPermissions: Record<MemberRole, CompanyPermission[]> = {
-  member: ["invoice:upload"],
-  owner: ["invoice:upload", "invoice:read_all", "members:manage"],
+  member: ["company:read", "invoice:upload"],
+  owner: ["company:read", "invoice:upload", "invoice:read_all", "members:manage"],
 };
 
 const accountantPermissions: CompanyPermission[] = [
+  "company:read",
   "invoice:read_all",
   "invoice:review",
   "period:close",

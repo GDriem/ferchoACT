@@ -7,6 +7,8 @@ const schema = z.object({
   AZURE_STORAGE_CONTAINER: z.string().min(1).default("facturas"),
   AZURE_DI_ENDPOINT: z.string().optional(),
   AZURE_DI_KEY: z.string().optional(),
+  // URL pública para los enlaces de invitación. Si falta se usa el host de la petición.
+  APP_URL: z.url().optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 

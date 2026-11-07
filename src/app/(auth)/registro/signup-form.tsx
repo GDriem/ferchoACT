@@ -1,11 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useActionState } from "react";
 import { signup } from "@/app/actions/auth";
 import { FormField } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AuthSwitchLink, NextInput } from "../next-param";
 
 export function SignupForm() {
   const [state, action, pending] = useActionState(signup, undefined);
@@ -17,6 +17,7 @@ export function SignupForm() {
       </CardHeader>
       <CardContent>
         <form action={action} className="grid gap-4">
+          <NextInput />
           <FormField
             name="name"
             label="Nombre completo"
@@ -56,9 +57,7 @@ export function SignupForm() {
           </Button>
           <p className="text-center text-sm text-muted-foreground">
             ¿Ya tiene cuenta?{" "}
-            <Link href="/ingresar" className="font-medium text-foreground underline underline-offset-4">
-              Ingrese
-            </Link>
+            <AuthSwitchLink href="/ingresar">Ingrese</AuthSwitchLink>
           </p>
         </form>
       </CardContent>

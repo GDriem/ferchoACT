@@ -98,16 +98,21 @@ function CompanyGrid({
     <ul className="grid gap-3 sm:grid-cols-2">
       {items.map((c) => (
         <li key={c.id}>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Building2Icon className="size-4 text-muted-foreground" />
-                {c.legalName}
-                {c.badge && <Badge variant="secondary">{c.badge}</Badge>}
-              </CardTitle>
-              <CardDescription className="tabular-nums">RTN {formatRtn(c.rtn)}</CardDescription>
-            </CardHeader>
-          </Card>
+          <Link
+            href={`/app/empresas/${c.id}`}
+            className="block rounded-xl focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+          >
+            <Card className="transition-colors hover:bg-muted/50">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Building2Icon className="size-4 text-muted-foreground" />
+                  {c.legalName}
+                  {c.badge && <Badge variant="secondary">{c.badge}</Badge>}
+                </CardTitle>
+                <CardDescription className="tabular-nums">RTN {formatRtn(c.rtn)}</CardDescription>
+              </CardHeader>
+            </Card>
+          </Link>
         </li>
       ))}
     </ul>

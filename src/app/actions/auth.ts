@@ -7,7 +7,7 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { createSession, deleteSession } from "@/lib/auth/session";
-import { loginSchema, signupSchema, type FormState } from "@/lib/validation/auth";
+import { loginSchema, safeNext, signupSchema, type FormState } from "@/lib/validation/auth";
 
 export async function signup(_prev: FormState, formData: FormData): Promise<FormState> {
   const parsed = signupSchema.safeParse(Object.fromEntries(formData));
@@ -27,7 +27,7 @@ export async function signup(_prev: FormState, formData: FormData): Promise<Form
   }
 
   await createSession(created.id);
-  redirect(isAccountant ? "/app" : "/app/empresas/nueva");
+  redirect(safeNext(formData.get("next")) ?? (isAccountant ? "/app" : "/app/empresas/nueva"));
 }
 
 export async function login(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -46,7 +46,7 @@ export async function login(_prev: FormState, formData: FormData): Promise<FormS
   }
 
   await createSession(user.id);
-  redirect("/app");
+  redirect(safeNext(formData.get("next")) ?? "/app");
 }
 
 export async function logout() {

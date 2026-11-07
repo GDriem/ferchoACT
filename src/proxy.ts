@@ -13,7 +13,10 @@ export function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL("/ingresar", req.nextUrl));
   }
   if (authPages.includes(pathname) && hasSession) {
-    return NextResponse.redirect(new URL("/app", req.nextUrl));
+    // Solo rutas internas (evita redirecciones abiertas con ?next=//otro-sitio)
+    const next = req.nextUrl.searchParams.get("next");
+    const target = next && /^\/(?![/\\])/.test(next) ? next : "/app";
+    return NextResponse.redirect(new URL(target, req.nextUrl));
   }
   return NextResponse.next();
 }

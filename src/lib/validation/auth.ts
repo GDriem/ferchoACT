@@ -29,6 +29,20 @@ export const companySchema = z.object({
     .transform(normalizeRtn),
 });
 
+export const invitationSchema = z.object({
+  companyId: z.guid(),
+  kind: z.enum(["member", "accountant"]),
+  email: z
+    .union([z.literal(""), z.email({ error: "Escriba un correo válido o déjelo vacío." })])
+    .optional()
+    .transform((v) => v?.trim().toLowerCase() || undefined),
+});
+
+/** Ruta interna segura para volver después de ingresar (evita redirecciones abiertas). */
+export function safeNext(value: unknown): string | undefined {
+  return typeof value === "string" && /^\/(?![/\\])/.test(value) ? value : undefined;
+}
+
 /** Estado que devuelven las server actions de formularios (useActionState). */
 export type FormState =
   | {
