@@ -78,6 +78,12 @@ export const invoices = pgTable(
     // Salida cruda del OCR y confianza por campo, para resaltar en la UI
     ocrConfidence: jsonb().$type<Record<string, number>>(),
     ocrRaw: jsonb(),
+    // Valores que propuso el OCR (prellenan el formulario aunque no se guarden en columnas)
+    ocrFields: jsonb().$type<Record<string, string>>(),
+    // Mensaje si el OCR falló; la factura igual pasa a needs_review
+    ocrError: text(),
+    // Cuándo quien la subió confirmó los datos
+    confirmedAt: timestamp({ withTimezone: true }),
 
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -94,7 +100,7 @@ export const invoiceFiles = pgTable("invoice_files", {
   invoiceId: uuid()
     .notNull()
     .references(() => invoices.id, { onDelete: "cascade" }),
-  blobName: text().notNull(),
+  blobName: text().notNull().unique(),
   contentType: text().notNull(),
   sizeBytes: integer().notNull(),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),

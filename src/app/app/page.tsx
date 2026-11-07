@@ -1,8 +1,9 @@
 import { eq } from "drizzle-orm";
-import { Building2Icon, PlusIcon } from "lucide-react";
+import { Building2Icon, PlusIcon, ReceiptTextIcon } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { ScanFab } from "@/components/scan-fab";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -68,6 +69,12 @@ async function HomeContent() {
         </section>
       )}
 
+      {memberOf.length > 0 && (
+        <Link href="/app/facturas" className="flex min-h-11 items-center justify-between rounded-xl border px-4 py-3 text-sm font-medium hover:bg-muted/50">
+          Mis facturas <ReceiptTextIcon className="size-4 text-muted-foreground" />
+        </Link>
+      )}
+
       <section className="grid gap-3">
         <div className="flex items-center justify-between gap-4">
           <h2 className="text-xl font-semibold">Mis empresas</h2>
@@ -85,6 +92,7 @@ async function HomeContent() {
           />
         )}
       </section>
+      {memberOf.length > 0 && <ScanFab />}
     </div>
   );
 }

@@ -22,11 +22,12 @@ El usuario se comunica en español. La interfaz y los mensajes van en español d
 cp .env.example .env.local   # una sola vez
 npm run db:up                # Postgres + Azurite en Docker
 npm run db:migrate           # aplicar migraciones (drizzle/)
+npm run storage:setup        # contenedor de Blob + CORS para subir desde el navegador
 npm run dev                  # http://localhost:3000
 
 npm run lint
 npm run typecheck            # next typegen + tsc (los tipos LayoutProps/PageProps los genera Next)
-npm test                     # vitest
+npm test                     # vitest (crea y migra la base <db>_test)
 npx vitest run src/lib/validation/rtn.test.ts   # un solo archivo
 npx vitest run -t "valida 14 dígitos"          # un solo test por nombre
 npm run build
