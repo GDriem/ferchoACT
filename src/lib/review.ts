@@ -1,11 +1,12 @@
 import "server-only";
-import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   accountantClients,
   auditLog,
   companies,
   expenseCategories,
+  invoiceFiles,
   invoices,
   taxPeriods,
   users,
@@ -67,6 +68,10 @@ export async function getPeriodInvoices(companyId: string, year: number, month: 
     .where(and(eq(taxPeriods.companyId, companyId), eq(taxPeriods.year, year), eq(taxPeriods.month, month)));
 
   const uploadedThisMonth = sql`to_char(${invoices.createdAt} at time zone ${TIME_ZONE}, 'YYYY-MM') = ${periodParam(year, month)}`;
+  // Una factura a mano sin confirmar no tiene datos ni archivo: no se le muestra al contador
+  const hasFile = exists(db.select().from(invoiceFiles).where(eq(invoiceFiles.invoiceId, invoices.id)));
+  const withoutPeriod = and(isNull(invoices.periodId), uploadedThisMonth, hasFile);
+  const inMonth = period ? or(eq(invoices.periodId, period.id), withoutPeriod) : withoutPeriod;
   const rows = await db
     .select({
       id: invoices.id,
@@ -98,9 +103,7 @@ export async function getPeriodInvoices(companyId: string, year: number, month: 
       and(
         eq(invoices.companyId, companyId),
         eq(invoices.kind, kind),
-        period
-          ? or(eq(invoices.periodId, period.id), and(isNull(invoices.periodId), uploadedThisMonth))
-          : and(isNull(invoices.periodId), uploadedThisMonth),
+        inMonth,
       ),
     )
     .orderBy(invoices.fechaEmision, invoices.createdAt);
@@ -120,7 +123,7 @@ export async function getPeriodInvoices(companyId: string, year: number, month: 
         eq(invoices.companyId, companyId),
         eq(invoices.kind, kind === "sale" ? "purchase" : "sale"),
         inArray(invoices.status, ["processing", "needs_review"]),
-        period ? or(eq(invoices.periodId, period.id), and(isNull(invoices.periodId), uploadedThisMonth)) : and(isNull(invoices.periodId), uploadedThisMonth),
+        inMonth,
       ),
     );
 
