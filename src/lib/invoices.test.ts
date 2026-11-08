@@ -235,6 +235,22 @@ describe("eliminar", () => {
     expect((await getInvoiceForReview(id)).canDelete).toBe(false);
     await expect(discardInvoice(id)).rejects.toBeInstanceOf(ForbiddenError);
   });
+
+  it("no se elimina si el contador la valida mientras tanto", async () => {
+    const { company, member } = await createCompany();
+    loginAs(member);
+    const id = await upload(company.id);
+    const [file] = [...blobs.keys()].filter((k) => k.startsWith(`${company.id}/${member.id}/`));
+    // El contador valida justo después del chequeo de permisos y antes del borrado
+    const transaction = db.transaction.bind(db);
+    vi.spyOn(db, "transaction").mockImplementationOnce(async (fn) => {
+      await db.update(invoices).set({ status: "validated" }).where(eq(invoices.id, id));
+      return transaction(fn);
+    });
+    await expect(discardInvoice(id)).rejects.toMatchObject({ code: "not_editable" });
+    expect(await db.select({ id: invoices.id }).from(invoices).where(eq(invoices.id, id))).toEqual([{ id }]);
+    expect(blobs.has(file)).toBe(true);
+  });
 });
 
 describe("ventas", () => {

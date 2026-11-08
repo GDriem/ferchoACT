@@ -1,6 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, isNotNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import { db, type Db } from "@/db";
 import {
   auditLog,
@@ -213,8 +213,8 @@ export async function processInvoiceOcr(invoiceId: string) {
 // Lectura y edición
 // ---------------------------------------------------------------------------
 
-const uploaderCanEdit = (status: InvoiceStatus) =>
-  status === "processing" || status === "needs_review" || status === "rejected";
+const UPLOADER_EDITABLE: InvoiceStatus[] = ["processing", "needs_review", "rejected"];
+const uploaderCanEdit = (status: InvoiceStatus) => UPLOADER_EDITABLE.includes(status);
 
 /**
  * Autoriza sobre una factura. Quien la subió la ve (y la edita hasta que el
@@ -379,7 +379,14 @@ export async function discardInvoice(invoiceId: string) {
   if (as !== "uploader") throw new ForbiddenError();
   const [file] = await db.select().from(invoiceFiles).where(eq(invoiceFiles.invoiceId, invoiceId));
   await db.transaction(async (tx) => {
-    await tx.delete(invoices).where(eq(invoices.id, invoiceId));
+    // Si el contador la validó mientras tanto, no se borra
+    const [deleted] = await tx
+      .delete(invoices)
+      .where(and(eq(invoices.id, invoiceId), inArray(invoices.status, UPLOADER_EDITABLE)))
+      .returning({ id: invoices.id });
+    if (!deleted) {
+      throw new InvoiceError("not_editable", "El contador ya revisó esta factura y no se puede eliminar.");
+    }
     await tx.insert(auditLog).values({
       companyId: invoice.companyId,
       userId: user.id,
