@@ -75,6 +75,13 @@ export async function downloadBlob(blobName: string): Promise<Uint8Array> {
   return container().getBlobClient(blobName).downloadToBuffer();
 }
 
+/** Subida desde el servidor (archivos chicos: foto de perfil, logo). */
+export async function uploadBlob(blobName: string, data: Uint8Array, contentType: string) {
+  await container()
+    .getBlockBlobClient(blobName)
+    .uploadData(data, { blobHTTPHeaders: { blobContentType: contentType } });
+}
+
 export async function deleteBlob(blobName: string) {
   await container().getBlobClient(blobName).deleteIfExists();
 }

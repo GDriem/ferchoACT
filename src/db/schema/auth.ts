@@ -7,6 +7,10 @@ export const users = pgTable("users", {
   passwordHash: text().notNull(),
   // Un contador atiende a varias empresas vía accountant_clients
   isAccountant: boolean().notNull().default(false),
+  // Código que el contador comparte para que una empresa lo vincule sin enlace
+  accountantCode: text().unique(),
+  // Foto de perfil en Blob (privada, se lee con SAS)
+  avatarBlob: text(),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
 

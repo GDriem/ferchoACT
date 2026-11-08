@@ -3,11 +3,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AlertTriangleIcon } from "lucide-react";
 import { startTransition, useActionState, useEffect, useMemo } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { saveInvoice, type SaveInvoiceState } from "@/app/actions/invoices";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   invoiceConsistencyIssues,
@@ -30,14 +31,24 @@ type FieldDef = {
   money?: boolean;
 };
 
-const sections: { title: string; fields: FieldDef[] }[] = [
-  {
-    title: "Proveedor",
-    fields: [
-      { name: "razonSocialEmisor", label: "Nombre o razón social" },
-      { name: "rtnEmisor", label: "RTN del proveedor", inputMode: "numeric", placeholder: "0801-1990-123456" },
-    ],
-  },
+const supplierSection = {
+  title: "Proveedor",
+  fields: [
+    { name: "razonSocialEmisor", label: "Nombre o razón social" },
+    { name: "rtnEmisor", label: "RTN del proveedor", inputMode: "numeric", placeholder: "0801-1990-123456" },
+  ],
+} satisfies { title: string; fields: FieldDef[] };
+
+const clientSection = {
+  title: "Cliente",
+  fields: [
+    { name: "nombreComprador", label: "Nombre del cliente (opcional)", hint: "Déjelo vacío si es consumidor final." },
+    { name: "rtnComprador", label: "RTN del cliente (opcional)", inputMode: "numeric", placeholder: "0801-1990-123456" },
+  ],
+} satisfies { title: string; fields: FieldDef[] };
+
+const purchaseSections: { title: string; fields: FieldDef[] }[] = [
+  supplierSection,
   {
     title: "Documento",
     fields: [
@@ -64,8 +75,22 @@ const sections: { title: string; fields: FieldDef[] }[] = [
   },
 ];
 
+// En una venta el emisor es la empresa (va oculto) y se pide el cliente
+const saleSections: { title: string; fields: FieldDef[] }[] = [
+  clientSection,
+  ...purchaseSections.slice(1).map((section) => ({
+    ...section,
+    fields: section.fields.filter((f) => f.name !== "rtnComprador"),
+  })),
+];
+
+const fullWidth: InvoiceField[] = ["razonSocialEmisor", "cai", "nombreComprador"];
+
 export type InvoiceFormProps = {
   invoiceId: string;
+  kind?: "purchase" | "sale";
+  /** Categorías para compras; si no se pasan, no se muestra el campo. */
+  categories?: { id: string; name: string }[];
   initial: Values;
   /** Confianza del OCR; si se pasa, los campos < 0.8 se resaltan. */
   confidences?: Partial<Record<InvoiceField, number>> | null;
@@ -81,6 +106,8 @@ export type InvoiceFormProps = {
 
 export function InvoiceForm({
   invoiceId,
+  kind = "purchase",
+  categories,
   initial,
   confidences,
   companyRtn,
@@ -129,8 +156,10 @@ export function InvoiceForm({
 
   if (state?.saved && savedSlot) return savedSlot;
 
+  const sale = kind === "sale";
+  const sections = sale ? saleSections : purchaseSections;
   const buyerMismatch =
-    companyRtn && values.rtnComprador && normalizeRtn(values.rtnComprador) !== companyRtn
+    !sale && companyRtn && values.rtnComprador && normalizeRtn(values.rtnComprador) !== companyRtn
       ? `No coincide con el RTN de la empresa (${formatRtn(companyRtn)}). Sin él, el crédito fiscal puede no aplicar.`
       : undefined;
 
@@ -142,10 +171,49 @@ export function InvoiceForm({
   return (
     <form onSubmit={submit} noValidate className="grid gap-6">
       <input type="hidden" name="invoiceId" value={invoiceId} />
+      {sale && (
+        <>
+          {/* El servidor igual fija a la empresa como emisora */}
+          <input type="hidden" {...register("rtnEmisor")} />
+          <input type="hidden" {...register("razonSocialEmisor")} />
+        </>
+      )}
       <fieldset disabled={readOnly || pending} className="grid gap-6">
-        {sections.map((section) => (
+        {sections.map((section, i) => (
           <section key={section.title} className="grid gap-3">
             <h2 className="text-sm font-semibold text-muted-foreground">{section.title}</h2>
+            {i === 0 && !sale && categories && (
+              <div className="grid gap-1.5">
+                <Label htmlFor="categoryId">Categoría</Label>
+                <Controller
+                  control={control}
+                  name="categoryId"
+                  render={({ field }) => (
+                    <Select
+                      name="categoryId"
+                      value={field.value || null}
+                      onValueChange={(v) => field.onChange(v ?? "")}
+                      items={categories.map((c) => ({ value: c.id, label: c.name }))}
+                      disabled={readOnly || pending}
+                    >
+                      <SelectTrigger id="categoryId" className="h-11 w-full">
+                        <SelectValue placeholder="Elija una categoría" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categories.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                {(errors.categoryId?.message ?? state?.fieldErrors?.categoryId?.[0]) && (
+                  <p className="text-xs text-destructive">{errors.categoryId?.message ?? state?.fieldErrors?.categoryId?.[0]}</p>
+                )}
+              </div>
+            )}
             <div className="grid gap-3 sm:grid-cols-2">
               {section.fields.map((f) => {
                 const confidence = confidences?.[f.name];
@@ -159,7 +227,7 @@ export function InvoiceForm({
                 const errorId = `${f.name}-error`;
                 const noteId = `${f.name}-note`;
                 return (
-                  <div key={f.name} className={cn("grid gap-1.5", f.name === "razonSocialEmisor" && "sm:col-span-2", f.name === "cai" && "sm:col-span-2")}>
+                  <div key={f.name} className={cn("grid gap-1.5", fullWidth.includes(f.name) && "sm:col-span-2")}>
                     <Label htmlFor={f.name}>{f.label}</Label>
                     <div className="relative">
                       {f.money && (
@@ -179,7 +247,7 @@ export function InvoiceForm({
                           lowConfidence && !error && "border-amber-500 bg-amber-500/10 focus-visible:ring-amber-500/30",
                         )}
                         aria-invalid={!!error || undefined}
-                        aria-describedby={[error && errorId, (lowConfidence || warning) && noteId].filter(Boolean).join(" ") || undefined}
+                        aria-describedby={[error && errorId, (lowConfidence || warning || f.hint) && noteId].filter(Boolean).join(" ") || undefined}
                         {...register(f.name as keyof Values)}
                       />
                     </div>
@@ -194,6 +262,10 @@ export function InvoiceForm({
                     ) : warning ? (
                       <p id={noteId} className="text-xs text-amber-700 dark:text-amber-400">
                         {warning}
+                      </p>
+                    ) : f.hint ? (
+                      <p id={noteId} className="text-xs text-muted-foreground">
+                        {f.hint}
                       </p>
                     ) : null}
                   </div>

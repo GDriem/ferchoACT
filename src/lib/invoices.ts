@@ -1,6 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import { db, type Db } from "@/db";
 import {
   auditLog,
@@ -10,9 +10,11 @@ import {
   taxPeriods,
   users,
   type Invoice,
+  type InvoiceKind,
   type InvoiceStatus,
 } from "@/db/schema";
 import { ForbiddenError, requireCompanyAccess, requireUser } from "@/lib/auth/access";
+import { isCategoryAllowed, listCategoriesUnchecked } from "@/lib/categories";
 import { getOcr } from "@/lib/ocr";
 import {
   createReadUrl,
@@ -28,7 +30,7 @@ import { periodOf, type InvoiceFields } from "@/lib/validation/invoice";
 
 export class InvoiceError extends Error {
   constructor(
-    public code: "invalid_file" | "duplicate" | "period_closed" | "not_editable",
+    public code: "invalid_file" | "duplicate" | "period_closed" | "not_editable" | "invalid_category",
     message: string,
     public detail?: unknown,
   ) {
@@ -58,10 +60,33 @@ export async function requestUpload(input: { companyId: string; contentType: str
 }
 
 /**
+ * Borrador de una venta: la empresa es la emisora, y el CAI, su fecha límite
+ * y el rango se toman de la última venta registrada (suelen repetirse).
+ */
+async function saleDraft(companyId: string): Promise<Partial<Invoice>> {
+  const [company] = await db
+    .select({ rtn: companies.rtn, legalName: companies.legalName })
+    .from(companies)
+    .where(eq(companies.id, companyId));
+  const [last] = await db
+    .select({
+      cai: invoices.cai,
+      fechaLimiteEmision: invoices.fechaLimiteEmision,
+      rangoAutorizadoDesde: invoices.rangoAutorizadoDesde,
+      rangoAutorizadoHasta: invoices.rangoAutorizadoHasta,
+    })
+    .from(invoices)
+    .where(and(eq(invoices.companyId, companyId), eq(invoices.kind, "sale"), isNotNull(invoices.confirmedAt)))
+    .orderBy(desc(invoices.confirmedAt))
+    .limit(1);
+  return { rtnEmisor: company.rtn, razonSocialEmisor: company.legalName, ...(last ?? {}) };
+}
+
+/**
  * Paso 2: el navegador ya subió el archivo. Se crea la factura en
  * "processing". El OCR se lanza aparte (processInvoiceOcr) para no bloquear.
  */
-export async function confirmUpload(input: { companyId: string; blobName: string }) {
+export async function confirmUpload(input: { companyId: string; blobName: string; kind?: InvoiceKind }) {
   const { user } = await requireCompanyAccess(input.companyId, "invoice:upload");
   // Solo blobs emitidos para esta persona y empresa
   const prefix = `${input.companyId}/${user.id}/`;
@@ -78,10 +103,12 @@ export async function confirmUpload(input: { companyId: string; blobName: string
     throw new InvoiceError("invalid_file", "El archivo no es una foto o PDF válido.");
   }
 
+  const kind = input.kind ?? "purchase";
+  const draft = kind === "sale" ? await saleDraft(input.companyId) : {};
   return db.transaction(async (tx) => {
     const [invoice] = await tx
       .insert(invoices)
-      .values({ companyId: input.companyId, uploadedBy: user.id, status: "processing" })
+      .values({ ...draft, companyId: input.companyId, uploadedBy: user.id, kind, status: "processing" })
       .returning({ id: invoices.id });
     await tx.insert(invoiceFiles).values({
       invoiceId: invoice.id,
@@ -95,6 +122,28 @@ export async function confirmUpload(input: { companyId: string; blobName: string
       action: "invoice.uploaded",
       entity: "invoice",
       entityId: invoice.id,
+      detail: JSON.stringify({ kind }),
+    });
+    return invoice.id;
+  });
+}
+
+/** Factura sin foto, para llenarla a mano (p. ej. ventas de un talonario). */
+export async function createManualInvoice(input: { companyId: string; kind: InvoiceKind }) {
+  const { user } = await requireCompanyAccess(input.companyId, "invoice:upload");
+  const draft = input.kind === "sale" ? await saleDraft(input.companyId) : {};
+  return db.transaction(async (tx) => {
+    const [invoice] = await tx
+      .insert(invoices)
+      .values({ ...draft, companyId: input.companyId, uploadedBy: user.id, kind: input.kind, status: "needs_review" })
+      .returning({ id: invoices.id });
+    await tx.insert(auditLog).values({
+      companyId: input.companyId,
+      userId: user.id,
+      action: "invoice.created_manually",
+      entity: "invoice",
+      entityId: invoice.id,
+      detail: JSON.stringify({ kind: input.kind }),
     });
     return invoice.id;
   });
@@ -121,14 +170,17 @@ export async function processInvoiceOcr(invoiceId: string) {
     // los montos quedan solo en ocr_fields hasta que la persona los confirme.
     // Si ya existe la misma factura, el número no se copia (lo bloquea el
     // índice único) y la confirmación avisa.
+    // En una venta el emisor es la empresa: se conserva el del borrador.
+    const sale = row.invoice.kind === "sale";
     const columns: Partial<Invoice> = {};
-    if (fields.razonSocialEmisor) columns.razonSocialEmisor = fields.razonSocialEmisor;
+    if (fields.razonSocialEmisor && !sale) columns.razonSocialEmisor = fields.razonSocialEmisor;
+    if (fields.rtnEmisor && !sale) columns.rtnEmisor = fields.rtnEmisor;
     if (fields.cai) columns.cai = fields.cai;
-    if (fields.rtnEmisor) columns.rtnEmisor = fields.rtnEmisor;
     if (fields.fechaEmision) columns.fechaEmision = fields.fechaEmision;
     if (fields.fechaLimiteEmision) columns.fechaLimiteEmision = fields.fechaLimiteEmision;
-    if (fields.numeroFactura && fields.rtnEmisor) {
-      const dup = await findDuplicate(row.invoice.companyId, fields.rtnEmisor, fields.numeroFactura, invoiceId);
+    const rtnEmisor = sale ? row.invoice.rtnEmisor : fields.rtnEmisor;
+    if (fields.numeroFactura && rtnEmisor) {
+      const dup = await findDuplicate(row.invoice.companyId, rtnEmisor, fields.numeroFactura, invoiceId);
       if (!dup) columns.numeroFactura = fields.numeroFactura;
     }
 
@@ -161,8 +213,8 @@ export async function processInvoiceOcr(invoiceId: string) {
 // Lectura y edición
 // ---------------------------------------------------------------------------
 
-const uploaderCanEdit = (status: InvoiceStatus) =>
-  status === "processing" || status === "needs_review" || status === "rejected";
+const UPLOADER_EDITABLE: InvoiceStatus[] = ["processing", "needs_review", "rejected"];
+const uploaderCanEdit = (status: InvoiceStatus) => UPLOADER_EDITABLE.includes(status);
 
 /**
  * Autoriza sobre una factura. Quien la subió la ve (y la edita hasta que el
@@ -212,6 +264,7 @@ export async function getInvoiceForReview(invoiceId: string) {
     .select({ legalName: companies.legalName, rtn: companies.rtn })
     .from(companies)
     .where(eq(companies.id, invoice.companyId));
+  const categories = invoice.kind === "purchase" ? await listCategoriesUnchecked(invoice.companyId) : [];
 
   const rtn = invoice.rtnEmisor ?? invoice.ocrFields?.rtnEmisor;
   const numero = invoice.numeroFactura ?? invoice.ocrFields?.numeroFactura;
@@ -228,6 +281,8 @@ export async function getInvoiceForReview(invoiceId: string) {
     file: file ? { url: await createReadUrl(file.blobName), contentType: file.contentType } : null,
     duplicate,
     canEdit,
+    canDelete: as === "uploader" && uploaderCanEdit(invoice.status),
+    categories,
     as,
   };
 }
@@ -244,9 +299,24 @@ async function ensurePeriod(tx: Tx, companyId: string, fechaEmision: string) {
 
 export const PERIOD_CLOSED_MESSAGE = "Ese período ya fue declarado. Hable con su contador.";
 
-/** Guarda los datos confirmados. Valida duplicados y período cerrado. */
-export async function saveInvoiceFields(invoiceId: string, data: InvoiceFields) {
+/** Guarda los datos confirmados. Valida duplicados, categoría y período cerrado. */
+export async function saveInvoiceFields(invoiceId: string, input: InvoiceFields) {
   const { user, invoice, as } = await requireInvoiceAccess(invoiceId, "edit");
+
+  let data = input;
+  if (invoice.kind === "sale") {
+    // En una venta la empresa es la emisora, diga lo que diga el formulario
+    const [company] = await db
+      .select({ rtn: companies.rtn, legalName: companies.legalName })
+      .from(companies)
+      .where(eq(companies.id, invoice.companyId));
+    data = { ...input, rtnEmisor: company.rtn, razonSocialEmisor: company.legalName, categoryId: null };
+  } else {
+    data = { ...input, nombreComprador: null };
+    if (data.categoryId && !(await isCategoryAllowed(invoice.companyId, data.categoryId))) {
+      throw new InvoiceError("invalid_category", "Esa categoría no existe en la empresa. Elija otra.");
+    }
+  }
 
   const dup = await findDuplicate(invoice.companyId, data.rtnEmisor, data.numeroFactura, invoice.id);
   if (dup) {
@@ -303,13 +373,20 @@ export async function saveInvoiceFields(invoiceId: string, data: InvoiceFields) 
   }
 }
 
-/** Descarta una subida (p. ej. duplicada). Solo quien la subió y antes de validarse. */
+/** Elimina una factura (subida equivocada o duplicada). Solo quien la subió y antes de que el contador la valide. */
 export async function discardInvoice(invoiceId: string) {
   const { user, invoice, as } = await requireInvoiceAccess(invoiceId, "edit");
   if (as !== "uploader") throw new ForbiddenError();
   const [file] = await db.select().from(invoiceFiles).where(eq(invoiceFiles.invoiceId, invoiceId));
   await db.transaction(async (tx) => {
-    await tx.delete(invoices).where(eq(invoices.id, invoiceId));
+    // Si el contador la validó mientras tanto, no se borra
+    const [deleted] = await tx
+      .delete(invoices)
+      .where(and(eq(invoices.id, invoiceId), inArray(invoices.status, UPLOADER_EDITABLE)))
+      .returning({ id: invoices.id });
+    if (!deleted) {
+      throw new InvoiceError("not_editable", "El contador ya revisó esta factura y no se puede eliminar.");
+    }
     await tx.insert(auditLog).values({
       companyId: invoice.companyId,
       userId: user.id,
@@ -329,9 +406,11 @@ export async function listMyInvoices() {
   return db
     .select({
       id: invoices.id,
+      kind: invoices.kind,
       status: invoices.status,
       rejectionReason: invoices.rejectionReason,
       razonSocialEmisor: invoices.razonSocialEmisor,
+      nombreComprador: invoices.nombreComprador,
       numeroFactura: invoices.numeroFactura,
       fechaEmision: invoices.fechaEmision,
       total: invoices.total,

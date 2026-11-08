@@ -1,27 +1,36 @@
 "use client";
 
-import { CameraIcon, FileTextIcon, FileUpIcon, RotateCcwIcon } from "lucide-react";
+import { CameraIcon, FileTextIcon, FileUpIcon, PencilLineIcon, RotateCcwIcon } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { confirmUpload, requestUpload } from "@/app/actions/invoices";
-import { Button } from "@/components/ui/button";
+import { confirmUpload, createManualInvoice, requestUpload } from "@/app/actions/invoices";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { compressImage, uploadToBlob } from "@/lib/image";
+import { cn } from "@/lib/utils";
 
 type Company = { id: string; legalName: string };
+type Kind = "purchase" | "sale";
+
+const kinds: { value: Kind; label: string; hint: string }[] = [
+  { value: "purchase", label: "Compra o gasto", hint: "Una factura que le dieron a la empresa." },
+  { value: "sale", label: "Venta", hint: "Una factura que la empresa le hizo a un cliente." },
+];
 type Picked = { blob: Blob; contentType: string; previewUrl: string | null; name: string };
 
 const LAST_COMPANY_KEY = "ferchoact:last-company";
 const MAX_BYTES = 10 * 1024 * 1024;
 
-export function Scanner({ companies }: { companies: Company[] }) {
+export function Scanner({ companies, initialKind = "purchase" }: { companies: Company[]; initialKind?: Kind }) {
   const router = useRouter();
+  const [kind, setKind] = useState<Kind>(initialKind);
   const cameraRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [companyId, setCompanyId] = useState(companies[0].id);
   const [picked, setPicked] = useState<Picked | null>(null);
-  const [busy, setBusy] = useState<"preparing" | "uploading" | null>(null);
+  const [busy, setBusy] = useState<"preparing" | "uploading" | "manual" | null>(null);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,7 +91,18 @@ export function Scanner({ companies }: { companies: Company[] }) {
       setBusy(null);
       return setError("Se perdió la conexión al subir. Revise su internet y toque «Usar foto» otra vez.");
     }
-    const done = await confirmUpload({ companyId, blobName: req.data.blobName });
+    const done = await confirmUpload({ companyId, blobName: req.data.blobName, kind });
+    if (!done.ok) {
+      setBusy(null);
+      return setError(done.error.message);
+    }
+    router.push(`/app/facturas/${done.data.invoiceId}`);
+  }
+
+  async function manual() {
+    setError(null);
+    setBusy("manual");
+    const done = await createManualInvoice({ companyId, kind });
     if (!done.ok) {
       setBusy(null);
       return setError(done.error.message);
@@ -92,6 +112,28 @@ export function Scanner({ companies }: { companies: Company[] }) {
 
   return (
     <div className="grid gap-4">
+      <fieldset className="grid gap-1.5" disabled={busy !== null || picked !== null}>
+        <legend className="mb-1.5 text-sm font-medium">¿Qué factura es?</legend>
+        <div role="radiogroup" className="grid grid-cols-2 gap-2">
+          {kinds.map((k) => (
+            <button
+              key={k.value}
+              type="button"
+              role="radio"
+              aria-checked={kind === k.value}
+              onClick={() => setKind(k.value)}
+              className={cn(
+                "grid min-h-11 gap-0.5 rounded-lg border p-3 text-left transition-colors disabled:opacity-60",
+                kind === k.value ? "border-primary bg-primary/5" : "hover:bg-muted",
+              )}
+            >
+              <span className="text-sm font-medium">{k.label}</span>
+              <span className="text-xs text-muted-foreground">{k.hint}</span>
+            </button>
+          ))}
+        </div>
+      </fieldset>
+
       {companies.length > 1 && (
         <div className="grid gap-1.5">
           <Label htmlFor="company">Empresa</Label>
@@ -114,10 +156,11 @@ export function Scanner({ companies }: { companies: Company[] }) {
         </div>
       )}
 
+      {/* Solo image/*: si el accept incluye PDF, Android abre el selector de archivos en vez de la cámara */}
       <input
         ref={cameraRef}
         type="file"
-        accept="image/*,application/pdf"
+        accept="image/*"
         capture="environment"
         className="sr-only"
         tabIndex={-1}
@@ -158,6 +201,19 @@ export function Scanner({ companies }: { companies: Company[] }) {
           >
             <FileUpIcon /> Subir PDF o imagen
           </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="lg"
+            className="h-11"
+            onClick={manual}
+            disabled={busy !== null}
+          >
+            <PencilLineIcon /> {busy === "manual" ? "Abriendo…" : "Llenar a mano, sin foto"}
+          </Button>
+          <Link href="/app" className={buttonVariants({ variant: "outline", size: "lg", className: "h-11" })}>
+            Cancelar
+          </Link>
         </div>
       ) : (
         <div className="grid gap-3">

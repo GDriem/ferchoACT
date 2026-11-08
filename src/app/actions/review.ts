@@ -47,11 +47,13 @@ export async function moveBatch(input: { companyId: string; ids: string[]; perio
 export async function getInvoiceDetail(invoiceId: string) {
   if (!z.guid().safeParse(invoiceId).success) return fail("invalid", "Factura no encontrada.");
   try {
-    const { invoice, company, file, duplicate, canEdit } = await getInvoiceForReview(invoiceId);
+    const { invoice, company, file, duplicate, canEdit, categories } = await getInvoiceForReview(invoiceId);
     return {
       ok: true as const,
       data: {
         id: invoice.id,
+        kind: invoice.kind,
+        categories,
         status: invoice.status,
         rejectionReason: invoice.rejectionReason,
         confirmedAt: invoice.confirmedAt,

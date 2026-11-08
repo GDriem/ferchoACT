@@ -9,6 +9,7 @@ import { fail, type ActionResult } from "@/lib/action-result";
 import { formatDate } from "@/lib/format";
 import {
   confirmUpload as confirm,
+  createManualInvoice as createManual,
   discardInvoice as discard,
   InvoiceError,
   processInvoiceOcr,
@@ -43,16 +44,33 @@ export async function requestUpload(input: {
 }
 
 /** Crea la factura y lanza el OCR después de responder. */
+const kindSchema = z.enum(["purchase", "sale"]);
+
 export async function confirmUpload(input: {
   companyId: string;
   blobName: string;
+  kind: "purchase" | "sale";
 }): Promise<ActionResult<{ invoiceId: string }>> {
-  const parsed = z.object({ companyId: z.guid(), blobName: z.string().max(200) }).safeParse(input);
+  const parsed = z.object({ companyId: z.guid(), blobName: z.string().max(200), kind: kindSchema }).safeParse(input);
   if (!parsed.success) return fail("invalid", "Datos de subida inválidos.");
   try {
     const invoiceId = await confirm(parsed.data);
     after(() => processInvoiceOcr(invoiceId));
     return { ok: true, data: { invoiceId } };
+  } catch (e) {
+    return toResult(e);
+  }
+}
+
+/** Factura sin foto: se crea y se abre el formulario para llenarla a mano. */
+export async function createManualInvoice(input: {
+  companyId: string;
+  kind: "purchase" | "sale";
+}): Promise<ActionResult<{ invoiceId: string }>> {
+  const parsed = z.object({ companyId: z.guid(), kind: kindSchema }).safeParse(input);
+  if (!parsed.success) return fail("invalid", "Elija la empresa.");
+  try {
+    return { ok: true, data: { invoiceId: await createManual(parsed.data) } };
   } catch (e) {
     return toResult(e);
   }
@@ -93,13 +111,13 @@ export async function saveInvoice(_prev: SaveInvoiceState, formData: FormData): 
   return { saved: true };
 }
 
-export async function discardInvoice(invoiceId: string) {
-  if (!z.guid().safeParse(invoiceId).success) return;
+/** Elimina y vuelve a "Mis facturas"; si no se pudo (p. ej. el contador ya la validó), devuelve el motivo. */
+export async function discardInvoice(invoiceId: string): Promise<ActionResult> {
+  if (!z.guid().safeParse(invoiceId).success) return fail("invalid", "Factura no encontrada.");
   try {
     await discard(invoiceId);
   } catch (e) {
-    if (e instanceof ForbiddenError || e instanceof InvoiceError) return;
-    throw e;
+    return toResult(e);
   }
   redirect("/app/facturas");
 }

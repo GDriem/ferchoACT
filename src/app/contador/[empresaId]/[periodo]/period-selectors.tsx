@@ -10,15 +10,19 @@ type Option = { value: string; label: string };
 export function PeriodSelectors({
   companyId,
   periodo,
+  tipo,
   companies,
   months,
 }: {
   companyId: string;
   periodo: string;
+  /** Pestaña actual ("ventas"); se conserva al cambiar de empresa o mes. */
+  tipo?: string;
   companies: Option[];
   months: Option[];
 }) {
   const router = useRouter();
+  const query = tipo ? `?tipo=${tipo}` : "";
   return (
     <div className="flex flex-wrap items-end gap-3">
       <div className="grid gap-1.5">
@@ -26,7 +30,7 @@ export function PeriodSelectors({
         <Select
           value={companyId}
           items={companies}
-          onValueChange={(v) => v && router.push(`/contador/${v}/${periodo}`)}
+          onValueChange={(v) => v && router.push(`/contador/${v}/${periodo}${query}`)}
         >
           <SelectTrigger id="empresa" className="h-11 min-w-64">
             <SelectValue />
@@ -42,7 +46,7 @@ export function PeriodSelectors({
       </div>
       <div className="grid gap-1.5">
         <Label htmlFor="mes">Mes</Label>
-        <Select value={periodo} items={months} onValueChange={(v) => v && router.push(`/contador/${companyId}/${v}`)}>
+        <Select value={periodo} items={months} onValueChange={(v) => v && router.push(`/contador/${companyId}/${v}${query}`)}>
           <SelectTrigger id="mes" className="h-11 min-w-44">
             <SelectValue />
           </SelectTrigger>

@@ -11,18 +11,20 @@ import { Scanner } from "./scanner";
 
 export const metadata: Metadata = { title: "Escanear factura" };
 
-export default function ScanPage() {
+export default function ScanPage({ searchParams }: PageProps<"/app/facturas/nueva">) {
   return (
     <div className="mx-auto grid w-full max-w-md gap-4">
       <h1 className="text-xl font-semibold">Escanear factura</h1>
       <Suspense fallback={<Skeleton className="h-72" />}>
-        <ScanContent />
+        {searchParams.then((sp) => (
+          <ScanContent kind={sp.tipo === "venta" ? "sale" : "purchase"} />
+        ))}
       </Suspense>
     </div>
   );
 }
 
-async function ScanContent() {
+async function ScanContent({ kind }: { kind: "purchase" | "sale" }) {
   const user = await requireUser();
   const memberOf = await db
     .select({ id: companies.id, legalName: companies.legalName })
@@ -43,5 +45,5 @@ async function ScanContent() {
       </div>
     );
   }
-  return <Scanner companies={memberOf} />;
+  return <Scanner companies={memberOf} initialKind={kind} />;
 }

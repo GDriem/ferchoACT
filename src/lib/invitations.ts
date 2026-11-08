@@ -12,7 +12,9 @@ import {
   type InvitationKind,
 } from "@/db/schema";
 import { requireCompanyAccess, requireUser } from "@/lib/auth/access";
+import { getCurrentUser } from "@/lib/auth/session";
 import { invitationMailer } from "@/lib/mail";
+import { createReadUrl } from "@/lib/storage";
 
 export const INVITATION_DAYS = 7;
 
@@ -130,8 +132,45 @@ function validTokenCondition(token: string) {
     eq(companyInvitations.tokenHash, hashInvitationToken(token)),
     isNull(companyInvitations.acceptedAt),
     isNull(companyInvitations.revokedAt),
+    isNull(companyInvitations.declinedAt),
     gt(companyInvitations.expiresAt, sql`now()`),
   );
+}
+
+/**
+ * Rechaza la invitación. No hace falta tener cuenta; si la invitación es
+ * para un correo, solo esa cuenta puede rechazarla (para que nadie más
+ * anule el enlace).
+ */
+export async function declineInvitation(token: string) {
+  const user = await getCurrentUser();
+  await db.transaction(async (tx) => {
+    const [invitation] = await tx
+      .select({ id: companyInvitations.id, companyId: companyInvitations.companyId, email: companyInvitations.email })
+      .from(companyInvitations)
+      .where(validTokenCondition(token))
+      .for("update");
+    if (!invitation) {
+      throw new InvitationError("invalid", "Esta invitación venció, fue anulada o ya se usó.");
+    }
+    if (invitation.email && invitation.email !== user?.email) {
+      throw new InvitationError(
+        "email_mismatch",
+        `Esta invitación es para ${invitation.email}. Ingrese con esa cuenta para rechazarla.`,
+      );
+    }
+    await tx
+      .update(companyInvitations)
+      .set({ declinedAt: new Date() })
+      .where(eq(companyInvitations.id, invitation.id));
+    await tx.insert(auditLog).values({
+      companyId: invitation.companyId,
+      userId: user?.id ?? null,
+      action: "invitation.declined",
+      entity: "company_invitation",
+      entityId: invitation.id,
+    });
+  });
 }
 
 /**
@@ -233,11 +272,13 @@ export async function getCompanyDetail(companyId: string) {
             eq(companyInvitations.companyId, companyId),
             isNull(companyInvitations.acceptedAt),
             isNull(companyInvitations.revokedAt),
+            isNull(companyInvitations.declinedAt),
             gt(companyInvitations.expiresAt, sql`now()`),
           ),
         )
         .orderBy(desc(companyInvitations.createdAt))
     : [];
 
-  return { company, members, accountants, pending, canManage, via: access.via };
+  const logoUrl = company.logoBlob ? await createReadUrl(company.logoBlob) : null;
+  return { company, logoUrl, members, accountants, pending, canManage, via: access.via, userId: access.user.id };
 }

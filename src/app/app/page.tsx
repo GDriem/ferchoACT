@@ -1,9 +1,10 @@
 import { eq } from "drizzle-orm";
-import { Building2Icon, PlusIcon, ReceiptTextIcon } from "lucide-react";
+import { HandCoinsIcon, PlusIcon, ReceiptTextIcon } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { ScanFab } from "@/components/scan-fab";
+import { UserAvatar } from "@/components/user-avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { db } from "@/db";
 import { accountantClients, companies, companyMembers } from "@/db/schema";
 import { requireUser } from "@/lib/auth/access";
+import { createReadUrl } from "@/lib/storage";
 import { formatRtn } from "@/lib/validation/rtn";
 
 export const metadata: Metadata = { title: "Inicio" };
@@ -39,7 +41,13 @@ async function HomeContent() {
   const user = await requireUser();
 
   const memberOf = await db
-    .select({ id: companies.id, legalName: companies.legalName, rtn: companies.rtn, role: companyMembers.role })
+    .select({
+      id: companies.id,
+      legalName: companies.legalName,
+      rtn: companies.rtn,
+      logoBlob: companies.logoBlob,
+      role: companyMembers.role,
+    })
     .from(companyMembers)
     .innerJoin(companies, eq(companyMembers.companyId, companies.id))
     .where(eq(companyMembers.userId, user.id))
@@ -47,12 +55,21 @@ async function HomeContent() {
 
   const clients = user.isAccountant
     ? await db
-        .select({ id: companies.id, legalName: companies.legalName, rtn: companies.rtn })
+        .select({ id: companies.id, legalName: companies.legalName, rtn: companies.rtn, logoBlob: companies.logoBlob })
         .from(accountantClients)
         .innerJoin(companies, eq(accountantClients.companyId, companies.id))
         .where(eq(accountantClients.accountantId, user.id))
         .orderBy(companies.legalName)
     : [];
+
+  // Logos privados: SAS de lectura después de comprobar membresía o vínculo (arriba)
+  const logos = new Map(
+    await Promise.all(
+      [...memberOf, ...clients]
+        .filter((c) => c.logoBlob)
+        .map(async (c) => [c.id, await createReadUrl(c.logoBlob!)] as const),
+    ),
+  );
 
   return (
     <div className="grid gap-8">
@@ -64,15 +81,23 @@ async function HomeContent() {
               Aún no tiene clientes. Cuando una empresa lo invite como contador, aparecerá aquí.
             </p>
           ) : (
-            <CompanyGrid items={clients.map((c) => ({ ...c, href: `/contador/${c.id}` }))} />
+            <CompanyGrid items={clients.map((c) => ({ ...c, logoUrl: logos.get(c.id), href: `/contador/${c.id}` }))} />
           )}
         </section>
       )}
 
       {memberOf.length > 0 && (
-        <Link href="/app/facturas" className="flex min-h-11 items-center justify-between rounded-xl border px-4 py-3 text-sm font-medium hover:bg-muted/50">
-          Mis facturas <ReceiptTextIcon className="size-4 text-muted-foreground" />
-        </Link>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Link href="/app/facturas" className="flex min-h-11 items-center justify-between rounded-xl border px-4 py-3 text-sm font-medium hover:bg-muted/50">
+            Mis facturas <ReceiptTextIcon className="size-4 text-muted-foreground" />
+          </Link>
+          <Link
+            href="/app/facturas/nueva?tipo=venta"
+            className="flex min-h-11 items-center justify-between rounded-xl border px-4 py-3 text-sm font-medium hover:bg-muted/50"
+          >
+            Registrar una venta <HandCoinsIcon className="size-4 text-muted-foreground" />
+          </Link>
+        </div>
       )}
 
       <section className="grid gap-3">
@@ -88,7 +113,11 @@ async function HomeContent() {
           </p>
         ) : (
           <CompanyGrid
-            items={memberOf.map((c) => ({ ...c, badge: c.role === "owner" ? "Dueño" : "Miembro" }))}
+            items={memberOf.map((c) => ({
+              ...c,
+              logoUrl: logos.get(c.id),
+              badge: c.role === "owner" ? "Dueño" : "Miembro",
+            }))}
           />
         )}
       </section>
@@ -100,7 +129,7 @@ async function HomeContent() {
 function CompanyGrid({
   items,
 }: {
-  items: { id: string; legalName: string; rtn: string; badge?: string; href?: string }[];
+  items: { id: string; legalName: string; rtn: string; logoUrl?: string; badge?: string; href?: string }[];
 }) {
   return (
     <ul className="grid gap-3 sm:grid-cols-2">
@@ -113,7 +142,7 @@ function CompanyGrid({
             <Card className="transition-colors hover:bg-muted/50">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Building2Icon className="size-4 text-muted-foreground" />
+                  <UserAvatar name={c.legalName} url={c.logoUrl ?? null} square className="size-7" />
                   {c.legalName}
                   {c.badge && <Badge variant="secondary">{c.badge}</Badge>}
                 </CardTitle>

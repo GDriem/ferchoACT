@@ -77,6 +77,10 @@ export const invoiceFieldsSchema = z
     rtnComprador: optionalText
       .refine((v) => !v || isValidRtn(v), { error: "El RTN debe tener 14 dígitos." })
       .transform((v) => (v ? normalizeRtn(v) : null)),
+    // Cliente de una venta (en compras queda vacío)
+    nombreComprador: optionalText.refine((v) => !v || v.length <= 200, { error: "Máximo 200 caracteres." }),
+    // Solo compras; el servidor verifica que sea de la empresa o de la lista base
+    categoryId: optionalText.refine((v) => !v || z.guid().safeParse(v).success, { error: "Elija una categoría." }),
     importeExento: money,
     importeExonerado: money,
     importeGravado15: money,

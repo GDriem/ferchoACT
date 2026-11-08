@@ -1,7 +1,17 @@
 import "server-only";
-import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { accountantClients, auditLog, companies, invoices, taxPeriods, users } from "@/db/schema";
+import {
+  accountantClients,
+  auditLog,
+  companies,
+  expenseCategories,
+  invoiceFiles,
+  invoices,
+  taxPeriods,
+  users,
+  type InvoiceKind,
+} from "@/db/schema";
 import { requireCompanyAccess, requireUser } from "@/lib/auth/access";
 import { TIME_ZONE } from "@/lib/format";
 import { invoiceFieldsSchema, INVOICE_FIELDS } from "@/lib/validation/invoice";
@@ -49,7 +59,7 @@ export async function listClients() {
  * que aún no tienen período (procesando o sin fecha) subidas ese mes, para
  * que no queden escondidas.
  */
-export async function getPeriodInvoices(companyId: string, year: number, month: number) {
+export async function getPeriodInvoices(companyId: string, year: number, month: number, kind: InvoiceKind = "purchase") {
   await requireCompanyAccess(companyId, "invoice:review");
 
   const [period] = await db
@@ -58,6 +68,10 @@ export async function getPeriodInvoices(companyId: string, year: number, month: 
     .where(and(eq(taxPeriods.companyId, companyId), eq(taxPeriods.year, year), eq(taxPeriods.month, month)));
 
   const uploadedThisMonth = sql`to_char(${invoices.createdAt} at time zone ${TIME_ZONE}, 'YYYY-MM') = ${periodParam(year, month)}`;
+  // Una factura a mano sin confirmar no tiene datos ni archivo: no se le muestra al contador
+  const hasFile = exists(db.select().from(invoiceFiles).where(eq(invoiceFiles.invoiceId, invoices.id)));
+  const withoutPeriod = and(isNull(invoices.periodId), uploadedThisMonth, hasFile);
+  const inMonth = period ? or(eq(invoices.periodId, period.id), withoutPeriod) : withoutPeriod;
   const rows = await db
     .select({
       id: invoices.id,
@@ -65,6 +79,9 @@ export async function getPeriodInvoices(companyId: string, year: number, month: 
       fechaEmision: invoices.fechaEmision,
       razonSocialEmisor: invoices.razonSocialEmisor,
       rtnEmisor: invoices.rtnEmisor,
+      nombreComprador: invoices.nombreComprador,
+      rtnComprador: invoices.rtnComprador,
+      categoryName: expenseCategories.name,
       numeroFactura: invoices.numeroFactura,
       importeExento: invoices.importeExento,
       importeExonerado: invoices.importeExonerado,
@@ -81,12 +98,12 @@ export async function getPeriodInvoices(companyId: string, year: number, month: 
     })
     .from(invoices)
     .innerJoin(users, eq(invoices.uploadedBy, users.id))
+    .leftJoin(expenseCategories, eq(invoices.categoryId, expenseCategories.id))
     .where(
       and(
         eq(invoices.companyId, companyId),
-        period
-          ? or(eq(invoices.periodId, period.id), and(isNull(invoices.periodId), uploadedThisMonth))
-          : and(isNull(invoices.periodId), uploadedThisMonth),
+        eq(invoices.kind, kind),
+        inMonth,
       ),
     )
     .orderBy(invoices.fechaEmision, invoices.createdAt);
@@ -97,7 +114,20 @@ export async function getPeriodInvoices(companyId: string, year: number, month: 
     .from(taxPeriods)
     .where(eq(taxPeriods.companyId, companyId));
 
-  return { period: period ?? null, rows, periods };
+  // Para la pestaña que no se está viendo: cuántas hay pendientes
+  const [other] = await db
+    .select({ pending: sql<number>`count(*)::int` })
+    .from(invoices)
+    .where(
+      and(
+        eq(invoices.companyId, companyId),
+        eq(invoices.kind, kind === "sale" ? "purchase" : "sale"),
+        inArray(invoices.status, ["processing", "needs_review"]),
+        inMonth,
+      ),
+    );
+
+  return { period: period ?? null, rows, periods, otherPending: other?.pending ?? 0 };
 }
 
 type BatchResult = { updated: number; skipped: { id: string; reason: string }[] };

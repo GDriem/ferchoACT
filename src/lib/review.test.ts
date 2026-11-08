@@ -1,7 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 import { db } from "@/db";
-import { accountantClients, auditLog, invoices, taxPeriods } from "@/db/schema";
+import { accountantClients, auditLog, invoiceFiles, invoices, taxPeriods } from "@/db/schema";
 import { ForbiddenError } from "@/lib/auth/access";
 import { createCompany, createUser, loginAs } from "../../test/helpers";
 import {
@@ -137,7 +137,10 @@ describe("revisión del contador", () => {
   it("la tabla del mes trae las del período y las aún sin período", async () => {
     const { company, accountant, make } = await setup();
     const inPeriod = await make();
-    await make({ fechaEmision: "2026-11-02", periodId: null, status: "processing" });
+    const processing = await make({ fechaEmision: "2026-11-02", periodId: null, status: "processing" });
+    await db
+      .insert(invoiceFiles)
+      .values({ invoiceId: processing.id, blobName: `test/${processing.id}.jpg`, contentType: "image/jpeg", sizeBytes: 1000 });
     loginAs(accountant);
     const { rows, period } = await getPeriodInvoices(company.id, 2026, 10);
     expect(period?.month).toBe(10);
@@ -146,6 +149,18 @@ describe("revisión del contador", () => {
     const now = parsePeriodParam(currentPeriodParam())!;
     const current = await getPeriodInvoices(company.id, now.year, now.month);
     expect(current.rows.some((r) => !r.hasPeriod)).toBe(true);
+  });
+
+  it("no muestra ni cuenta las facturas a mano que nadie confirmó", async () => {
+    const { company, accountant, make } = await setup();
+    // "Llenar a mano" y luego «Volver»: sin período, sin archivo y sin datos
+    const blankSale = await make({ kind: "sale", periodId: null, numeroFactura: null, fechaEmision: null });
+    loginAs(accountant);
+    const now = parsePeriodParam(currentPeriodParam())!;
+    const sales = await getPeriodInvoices(company.id, now.year, now.month, "sale");
+    expect(sales.rows.map((r) => r.id)).not.toContain(blankSale.id);
+    const purchases = await getPeriodInvoices(company.id, now.year, now.month);
+    expect(purchases.otherPending).toBe(0);
   });
 
   it("parsea el período de la URL", () => {

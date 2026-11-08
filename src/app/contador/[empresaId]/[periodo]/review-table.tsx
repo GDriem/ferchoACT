@@ -20,7 +20,7 @@ import {
 } from "@tanstack/react-table";
 import Decimal from "decimal.js";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, CheckIcon, ReceiptTextIcon, SearchIcon, XIcon } from "lucide-react";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { moveBatch, rejectBatch, validateBatch } from "@/app/actions/review";
 import { InvoiceStatusBadge, invoiceStatusLabel } from "@/components/invoice-status-badge";
@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -51,6 +52,9 @@ export type ReviewRow = {
   fechaEmision: string | null;
   razonSocialEmisor: string | null;
   rtnEmisor: string | null;
+  nombreComprador: string | null;
+  rtnComprador: string | null;
+  categoryName: string | null;
   numeroFactura: string | null;
   importeGravado15: string;
   importeGravado18: string;
@@ -87,8 +91,10 @@ const rtnOrNumber: FilterFn<typeof features, ReviewRow> = (row, _col, value: str
   const q = value.replace(/[\s-]/g, "");
   if (!q) return true;
   const r = row.original;
-  return [r.rtnEmisor, r.numeroFactura?.replace(/-/g, "")].some((v) => v?.includes(q));
+  return [r.rtnEmisor, r.rtnComprador, r.numeroFactura?.replace(/-/g, "")].some((v) => v?.includes(q));
 };
+
+type Kind = "purchase" | "sale";
 
 function SortHeader({ label, column, align }: { label: string; column: { getIsSorted: () => false | "asc" | "desc"; toggleSorting: (desc?: boolean) => void }; align?: "right" }) {
   const sorted = column.getIsSorted();
@@ -106,7 +112,8 @@ function SortHeader({ label, column, align }: { label: string; column: { getIsSo
   );
 }
 
-const columns = helper.columns([
+// En compras se muestra el proveedor y la categoría; en ventas, el cliente
+const buildColumns = (kind: Kind) => helper.columns([
   helper.display({
     id: "select",
     header: ({ table }) => (
@@ -134,25 +141,42 @@ const columns = helper.columns([
     sortFn: "alphanumeric",
     sortUndefined: "last",
   }),
-  helper.accessor("razonSocialEmisor", {
-    header: ({ column }) => <SortHeader label="Proveedor" column={column} />,
-    cell: ({ row }) => (
-      <span className="block max-w-56 truncate" title={row.original.razonSocialEmisor ?? undefined}>
-        {row.original.razonSocialEmisor ?? <span className="text-muted-foreground">—</span>}
-      </span>
-    ),
+  helper.accessor((r) => (kind === "sale" ? (r.nombreComprador ?? "Consumidor final") : r.razonSocialEmisor), {
+    id: "party",
+    header: ({ column }) => <SortHeader label={kind === "sale" ? "Cliente" : "Proveedor"} column={column} />,
+    cell: ({ getValue }) => {
+      const v = getValue();
+      return (
+        <span className="block max-w-56 truncate" title={v ?? undefined}>
+          {v ?? <span className="text-muted-foreground">—</span>}
+        </span>
+      );
+    },
     sortFn: "text",
     sortUndefined: "last",
   }),
-  helper.accessor("rtnEmisor", {
+  helper.accessor((r) => (kind === "sale" ? r.rtnComprador : r.rtnEmisor), {
+    id: "rtn",
     header: ({ column }) => <SortHeader label="RTN" column={column} />,
-    cell: ({ row }) => (
-      <span className="tabular-nums">{row.original.rtnEmisor ? formatRtn(row.original.rtnEmisor) : "—"}</span>
-    ),
+    cell: ({ getValue }) => {
+      const v = getValue();
+      return <span className="tabular-nums">{v ? formatRtn(v) : "—"}</span>;
+    },
     filterFn: rtnOrNumber,
     sortFn: "alphanumeric",
     sortUndefined: "last",
   }),
+  ...(kind === "purchase"
+    ? [
+        helper.accessor("categoryName", {
+          header: ({ column }) => <SortHeader label="Categoría" column={column} />,
+          cell: ({ row }) =>
+            row.original.categoryName ?? <span className="text-amber-700 dark:text-amber-400">Sin categoría</span>,
+          sortFn: "text",
+          sortUndefined: "last",
+        }),
+      ]
+    : []),
   helper.accessor("numeroFactura", {
     header: ({ column }) => <SortHeader label="N.º factura" column={column} />,
     cell: ({ row }) => <span className="tabular-nums">{row.original.numeroFactura ?? "—"}</span>,
@@ -205,13 +229,16 @@ export function ReviewTable({
   months,
   rows,
   readOnly,
+  kind,
 }: {
   companyId: string;
   periodo: string;
   months: Option[];
   rows: ReviewRow[];
   readOnly?: boolean;
+  kind: Kind;
 }) {
+  const columns = useMemo(() => buildColumns(kind), [kind]);
   const [sorting, setSorting] = useState<SortingState>([{ id: "fechaEmision", desc: false }]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [status, setStatus] = useState<"all" | InvoiceStatus>("all");
@@ -226,7 +253,7 @@ export function ReviewTable({
   // Filtros derivados de los controles; la tabla no los modifica por su cuenta
   const columnFilters: ColumnFiltersState = [
     ...(status === "all" ? [] : [{ id: "status", value: status }]),
-    ...(search.trim() ? [{ id: "rtnEmisor", value: search }] : []),
+    ...(search.trim() ? [{ id: "rtn", value: search }] : []),
   ];
 
   const table = useTable({
@@ -323,7 +350,9 @@ export function ReviewTable({
       {rows.length === 0 ? (
         <div className="grid place-items-center gap-2 rounded-xl border border-dashed p-10 text-center">
           <ReceiptTextIcon className="size-8 text-muted-foreground" aria-hidden />
-          <p className="text-sm text-muted-foreground">No hay facturas en este mes. Cuando el cliente las suba, aparecerán aquí.</p>
+          <p className="text-sm text-muted-foreground">
+            No hay {kind === "sale" ? "ventas" : "compras ni gastos"} en este mes. Cuando el cliente las suba, aparecerán aquí.
+          </p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border">
@@ -402,6 +431,7 @@ export function ReviewTable({
             />
           </div>
           <DialogFooter>
+            <DialogClose render={<Button variant="outline" size="lg" className="h-11" />}>Cancelar</DialogClose>
             <Button
               variant="destructive"
               size="lg"
@@ -441,6 +471,7 @@ export function ReviewTable({
             </Select>
           </div>
           <DialogFooter>
+            <DialogClose render={<Button variant="outline" size="lg" className="h-11" />}>Cancelar</DialogClose>
             <Button
               size="lg"
               className="h-11"

@@ -34,6 +34,25 @@ export const taxPeriods = pgTable(
   (t) => [unique().on(t.companyId, t.year, t.month)],
 );
 
+/**
+ * Categorías de compras y gastos. Las de company_id null son la lista base
+ * (para todas las empresas); cada empresa o su contador agrega las suyas.
+ */
+export const expenseCategories = pgTable(
+  "expense_categories",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    companyId: uuid().references(() => companies.id, { onDelete: "cascade" }),
+    name: text().notNull(),
+    createdBy: uuid().references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.companyId, t.name).nullsNotDistinct()],
+);
+
+/** Compra o gasto (la empresa es la compradora) o venta (la empresa la emitió). */
+export const invoiceKind = pgEnum("invoice_kind", ["purchase", "sale"]);
+
 export const invoiceStatus = pgEnum("invoice_status", [
   "processing",
   "needs_review",
@@ -53,6 +72,7 @@ export const invoices = pgTable(
     uploadedBy: uuid()
       .notNull()
       .references(() => users.id),
+    kind: invoiceKind().notNull().default("purchase"),
     status: invoiceStatus().notNull().default("processing"),
     rejectionReason: text(),
 
@@ -66,6 +86,10 @@ export const invoices = pgTable(
     fechaLimiteEmision: date(),
     fechaEmision: date(),
     rtnComprador: text(),
+    // Cliente de una venta (en compras, el comprador es la empresa)
+    nombreComprador: text(),
+    // Solo compras; se pone en null si se borra la categoría
+    categoryId: uuid().references(() => expenseCategories.id, { onDelete: "set null" }),
 
     importeExento: money().notNull().default("0"),
     importeExonerado: money().notNull().default("0"),
@@ -106,6 +130,20 @@ export const invoiceFiles = pgTable("invoice_files", {
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
 
+export const invoiceComments = pgTable(
+  "invoice_comments",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    invoiceId: uuid()
+      .notNull()
+      .references(() => invoices.id, { onDelete: "cascade" }),
+    authorId: uuid().references(() => users.id, { onDelete: "set null" }),
+    body: text().notNull(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index().on(t.invoiceId, t.createdAt)],
+);
+
 export const sarReports = pgTable("sar_reports", {
   id: uuid().primaryKey().defaultRandom(),
   periodId: uuid()
@@ -120,4 +158,6 @@ export const sarReports = pgTable("sar_reports", {
 });
 
 export type Invoice = typeof invoices.$inferSelect;
+export type InvoiceKind = (typeof invoiceKind.enumValues)[number];
+export type ExpenseCategory = typeof expenseCategories.$inferSelect;
 export type InvoiceStatus = (typeof invoiceStatus.enumValues)[number];

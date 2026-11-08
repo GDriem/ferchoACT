@@ -11,17 +11,19 @@ export type CompanyPermission =
   | "invoice:read_all" // ver todas las facturas de la empresa
   | "invoice:review" // editar/validar cualquier factura
   | "members:manage"
+  | "categories:manage" // agregar o quitar categorías propias de la empresa
   | "period:close"; // cerrar período y generar reporte SAR
 
 const memberPermissions: Record<MemberRole, CompanyPermission[]> = {
   member: ["company:read", "invoice:upload"],
-  owner: ["company:read", "invoice:upload", "invoice:read_all", "members:manage"],
+  owner: ["company:read", "invoice:upload", "invoice:read_all", "members:manage", "categories:manage"],
 };
 
 const accountantPermissions: CompanyPermission[] = [
   "company:read",
   "invoice:read_all",
   "invoice:review",
+  "categories:manage",
   "period:close",
 ];
 
