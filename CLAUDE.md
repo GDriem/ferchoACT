@@ -35,13 +35,15 @@ npx vitest run -t "valida 14 dígitos"          # un solo test por nombre
 npm run build
 
 npm run db:generate -- --name <cambio>   # después de editar src/db/schema/*
+npm run deploy:azure                     # publica en Azure (ACR + job de migraciones + Container App)
 npm run db:studio
 ```
 
 ## Arquitectura
 
 - **Stack**: Next.js 16 (App Router, `cacheComponents` activo) + Tailwind v4 + shadcn/ui (sobre Base UI: usa la prop `render` en lugar de `asChild`; para links con estilo de botón usar `buttonVariants`). Postgres con Drizzle (`casing: "snake_case"`), Azure Blob (Azurite en local) y Azure Document Intelligence para el OCR.
-- **Postgres**: en local corre en Docker; en producción será Azure Database for PostgreSQL. Solo cambia `DATABASE_URL`.
+- **Postgres**: en local corre en Docker; en producción es Azure Database for PostgreSQL (`pg-ferchoact-cus`). Solo cambia `DATABASE_URL`.
+- **Producción**: Azure Container Apps en `rg-ferchoact` (ver README). Los secretos están en `kv-ferchoact`, nunca en variables planas de la app.
 - **Rutas**: las páginas públicas de auth están en `src/app/(auth)/` (`/ingresar`, `/registro`) y la app autenticada bajo `/app`. Las mutaciones son server actions en `src/app/actions/` y devuelven `FormState` para `useActionState`.
 - **Autenticación**: sesiones propias en la base (`src/lib/auth/session.ts`). `src/proxy.ts` solo hace un chequeo optimista de la cookie.
 - **Autorización por empresa**: `requireCompanyAccess(companyId, permiso)` en `src/lib/auth/access.ts` es el único punto de entrada para leer o escribir datos de una empresa. Roles: `owner`/`member` (en `company_members`) y contador (`users.is_accountant` + `accountant_clients`).

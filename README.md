@@ -20,6 +20,27 @@ npm run dev
 
 Abrir http://localhost:3000.
 
+## Producción (Azure)
+
+Todo vive en el grupo `rg-ferchoact` (suscripción Driem-Sub-Test):
+
+| Recurso | Nombre |
+|---|---|
+| App (Container Apps, Central US) | `ca-ferchoact` |
+| Job de migraciones | `job-migrate-ferchoact` |
+| Postgres Flexible Server (B1ms) | `pg-ferchoact-cus`, base `ferchoact` |
+| Imágenes | `crferchoact` (ACR) |
+| Fotos de facturas | `stferchoact`, contenedor `facturas` |
+| Secretos | `kv-ferchoact` (Key Vault), leídos con la identidad `id-ferchoact` |
+
+Para publicar la versión actual (requiere `az login`):
+
+```bash
+npm run deploy:azure
+```
+
+Compila las imágenes en ACR, corre las migraciones con el job y actualiza la app. Para cambiar un secreto, editarlo en `kv-ferchoact`; la app lo toma en unos 30 minutos o al crear una revisión nueva.
+
 ## Stack
 
 Next.js 16 · TypeScript · Tailwind CSS · shadcn/ui · PostgreSQL + Drizzle ORM · Azure Blob Storage · Azure AI Document Intelligence
