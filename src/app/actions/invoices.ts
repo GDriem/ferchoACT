@@ -111,13 +111,13 @@ export async function saveInvoice(_prev: SaveInvoiceState, formData: FormData): 
   return { saved: true };
 }
 
-export async function discardInvoice(invoiceId: string) {
-  if (!z.guid().safeParse(invoiceId).success) return;
+/** Elimina y vuelve a "Mis facturas"; si no se pudo (p. ej. el contador ya la validó), devuelve el motivo. */
+export async function discardInvoice(invoiceId: string): Promise<ActionResult> {
+  if (!z.guid().safeParse(invoiceId).success) return fail("invalid", "Factura no encontrada.");
   try {
     await discard(invoiceId);
   } catch (e) {
-    if (e instanceof ForbiddenError || e instanceof InvoiceError) return;
-    throw e;
+    return toResult(e);
   }
   redirect("/app/facturas");
 }

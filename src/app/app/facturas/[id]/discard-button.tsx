@@ -1,7 +1,9 @@
 "use client";
 
 import { Trash2Icon } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useTransition } from "react";
+import { toast } from "sonner";
 import { discardInvoice } from "@/app/actions/invoices";
 import {
   AlertDialog,
@@ -18,6 +20,7 @@ import { Button } from "@/components/ui/button";
 
 /** Elimina la factura y su archivo. Solo quien la subió, antes de que el contador la valide. */
 export function DiscardButton({ invoiceId, label }: { invoiceId: string; label: string | null }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const name = label ? `la factura ${label}` : "esta factura";
   return (
@@ -37,7 +40,15 @@ export function DiscardButton({ invoiceId, label }: { invoiceId: string; label: 
           <AlertDialogAction
             variant="destructive"
             disabled={pending}
-            onClick={() => startTransition(() => discardInvoice(invoiceId))}
+            onClick={() =>
+              startTransition(async () => {
+                const r = await discardInvoice(invoiceId);
+                if (r.ok) return;
+                toast.error(r.error.message);
+                // Si el contador la validó, la página se actualiza y el botón desaparece
+                router.refresh();
+              })
+            }
           >
             {pending ? "Eliminando…" : "Eliminar"}
           </AlertDialogAction>
