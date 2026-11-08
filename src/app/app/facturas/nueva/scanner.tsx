@@ -3,7 +3,7 @@
 import { CameraIcon, FileTextIcon, FileUpIcon, PencilLineIcon, RotateCcwIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { confirmUpload, createManualInvoice, requestUpload } from "@/app/actions/invoices";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -44,6 +44,19 @@ export function Scanner({ companies, initialKind = "purchase" }: { companies: Co
   }, [companies]);
 
   useEffect(() => () => void (picked?.previewUrl && URL.revokeObjectURL(picked.previewUrl)), [picked]);
+
+  // Con cacheComponents, Next oculta la página con <Activity> en vez de desmontarla: sin esto, al volver a
+  // "Escanear factura" seguía la foto anterior con "Guardando…" y no se podía escanear otra.
+  useLayoutEffect(
+    () => () => {
+      setPicked(null);
+      setBusy(null);
+      setProgress(0);
+      setError(null);
+      setKind(initialKind);
+    },
+    [initialKind],
+  );
 
   async function onFile(file: File | undefined) {
     if (!file) return;
